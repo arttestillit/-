@@ -13,9 +13,6 @@ import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 object AlarmNotifier {
     private const val CHANNEL_ID = "calendar_alarm"
@@ -47,11 +44,6 @@ object AlarmNotifier {
         nm.createNotificationChannel(channel)
     }
 
-    fun detailText(info: AlarmInfo): String {
-        val time = SimpleDateFormat("HH:mm", Locale.JAPAN).format(Date(info.eventBegin))
-        return listOfNotNull("$time 開始", info.location?.takeIf(String::isNotBlank)).joinToString(" · ")
-    }
-
     /** 全画面アラーム付き通知を出す。音は FLAG_INSISTENT で停止されるまで繰り返す。 */
     fun show(context: Context, info: AlarmInfo) {
         ensureChannel(context)
@@ -71,7 +63,8 @@ object AlarmNotifier {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_alarm)
             .setContentTitle(info.title)
-            .setContentText(detailText(info))
+            .setContentText(info.detail)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(info.detail))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

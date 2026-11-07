@@ -6,72 +6,86 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.Date
+import java.util.Locale
 
-/** 鳴らすアラーム1件分の情報。Intent の extras で受け渡す。 */
-data class AlarmInfo(val id: String, val title: String, val eventBegin: Long, val location: String?) {
+/** 鳴らすアラーム1件分の表示内容。Intent の extras で受け渡す。 */
+data class AlarmInfo(val id: String, val title: String, val detail: String) {
     val notificationId: Int get() = id.hashCode()
 
     fun putInto(intent: Intent): Intent = intent
         .putExtra(EXTRA_ID, id)
         .putExtra(EXTRA_TITLE, title)
-        .putExtra(EXTRA_BEGIN, eventBegin)
-        .putExtra(EXTRA_LOCATION, location)
+        .putExtra(EXTRA_DETAIL, detail)
 
     companion object {
         private const val EXTRA_ID = "alarm_id"
         private const val EXTRA_TITLE = "title"
-        private const val EXTRA_BEGIN = "event_begin"
-        private const val EXTRA_LOCATION = "location"
+        private const val EXTRA_DETAIL = "detail"
 
         fun from(intent: Intent): AlarmInfo? {
             val id = intent.getStringExtra(EXTRA_ID) ?: return null
-            return AlarmInfo(
-                id = id,
-                title = intent.getStringExtra(EXTRA_TITLE).orEmpty(),
-                eventBegin = intent.getLongExtra(EXTRA_BEGIN, 0L),
-                location = intent.getStringExtra(EXTRA_LOCATION),
-            )
+            return AlarmInfo(id, intent.getStringExtra(EXTRA_TITLE).orEmpty(), intent.getStringExtra(EXTRA_DETAIL).orEmpty())
+        }
+
+        fun of(alarm: PlannedAlarm): AlarmInfo {
+            val hm = SimpleDateFormat("HH:mm", Locale.JAPAN)
+            val title = alarm.items.joinToString(" / ") { (o, offset) ->
+                if (offset == 0) "出発時刻です（${o.title}）" else "あと${offset}分で出発（${o.title}）"
+            }
+            val detail = alarm.items.map { it.first }.distinct().joinToString("\n") { o ->
+                "出発 ${hm.format(Date(o.departure))} → ${hm.format(Date(o.event.begin))} ${o.title}" +
+                    (o.event.location?.takeIf(String::isNotBlank)?.let { "（$it）" } ?: "")
+            }
+            return AlarmInfo(alarm.id, title, detail)
         }
     }
 }
 
 data class SyncResult(
-    val candidates: List<Candidate>,
+    val outings: List<Outing>,
     val plan: List<PlannedAlarm>,
     val hasCalendarPermission: Boolean,
     val canScheduleExact: Boolean,
 )
 
 object AlarmScheduler {
-    const val LOOKAHEAD_MS = 48 * 60 * 60 * 1000L
+    /** 1週間先までアラームを登録しておく。 */
+    const val LOOKAHEAD_MS = 7 * 24 * 60 * 60 * 1000L
     const val ACTION_FIRE = "com.arttestillit.calendaralarm.action.FIRE"
 
-    /** カレンダーを読み直し、セット済みアラームとの差分を反映する。 */
+    /** カレンダーと時間割を読み直し、セット済みアラームとの差分を反映する。 */
     @Synchronized
     fun sync(context: Context): SyncResult {
         val ctx = context.applicationContext
         val prefs = Prefs(ctx)
         val repo = CalendarRepository(ctx)
         val now = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
         prefs.pruneSkipped(now)
         val settings = prefs.settings()
 
-        val events = repo.events(now, now + LOOKAHEAD_MS + settings.leadMinutes * 60_000L)
-        val candidates = AlarmPlanner.candidates(events, settings, now, horizon = now + LOOKAHEAD_MS)
-        val plan = AlarmPlanner.plan(candidates, settings.enabled)
+        // 「今日もう出かけたか」を判定するため、今日の0時から読む
+        val startOfToday = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val horizon = now + LOOKAHEAD_MS
+        val events = repo.events(startOfToday, horizon + 24 * 60 * 60 * 1000L)
+        val outings = AlarmPlanner.outings(events, settings, now, zone, horizon)
+        val plan = AlarmPlanner.plan(outings, settings.enabled)
 
         val wanted = plan.map { it.id }.toSet()
         (prefs.scheduledIds - wanted).forEach { cancel(ctx, it) }
 
         val canExact = canScheduleExact(ctx)
         val scheduled = if (canExact) {
-            plan.filter { schedule(ctx, AlarmInfo(it.id, it.title, it.eventBegin, it.location), it.triggerAt) }
-                .map { it.id }.toSet()
+            plan.filter { schedule(ctx, AlarmInfo.of(it), it.triggerAt) }.map { it.id }.toSet()
         } else {
             emptySet()
         }
         prefs.scheduledIds = scheduled
-        return SyncResult(candidates, plan, repo.hasPermission(), canExact)
+        return SyncResult(outings, plan, repo.hasPermission(), canExact)
     }
 
     fun canScheduleExact(context: Context): Boolean {
@@ -81,7 +95,7 @@ object AlarmScheduler {
 
     /**
      * setAlarmClock で登録する。Doze 中でも正確に鳴り、ステータスバーにアラームアイコンも出る。
-     * 同じIDで再登録すると上書きされる。
+     * 時計アプリと違い24時間以上先でも登録できる。同じIDで再登録すると上書きされる。
      */
     fun schedule(context: Context, info: AlarmInfo, triggerAt: Long): Boolean {
         val am = context.getSystemService(AlarmManager::class.java)

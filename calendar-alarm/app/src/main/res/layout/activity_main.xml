@@ -5,6 +5,7 @@
     android:fillViewport="true">
 
     <LinearLayout
+        android:id="@+id/root"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -31,54 +32,132 @@
             android:paddingBottom="8dp"
             android:textSize="14sp" />
 
-        <TextView
-            style="@style/SectionLabel"
-            android:text="@string/lead_label" />
-
-        <Spinner
-            android:id="@+id/spinnerLead"
-            android:layout_width="match_parent"
-            android:layout_height="48dp" />
-
-        <TextView
-            style="@style/SectionLabel"
-            android:text="@string/snooze_label" />
-
-        <Spinner
-            android:id="@+id/spinnerSnooze"
-            android:layout_width="match_parent"
-            android:layout_height="48dp" />
-
-        <CheckBox
-            android:id="@+id/checkSkipDeclined"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:text="@string/skip_declined" />
-
-        <TextView
-            style="@style/SectionLabel"
-            android:text="@string/calendars_label" />
-
+        <TextView style="@style/SectionLabel" android:text="@string/upcoming_label" />
+        <TextView style="@style/Hint" android:text="@string/upcoming_hint" />
         <LinearLayout
-            android:id="@+id/calendarList"
+            android:id="@+id/upcomingList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical" />
 
-        <TextView
-            style="@style/SectionLabel"
-            android:text="@string/upcoming_label" />
-
-        <TextView
+        <TextView style="@style/SectionLabel" android:text="@string/alarm_settings_label" />
+        <TextView style="@style/FieldLabel" android:text="@string/offsets_label" />
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:alpha="0.7"
-            android:text="@string/upcoming_hint"
-            android:textSize="12sp" />
+            android:orientation="horizontal">
+            <EditText
+                android:id="@+id/editOffsets"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="50,40"
+                android:importantForAutofill="no"
+                android:inputType="text" />
+            <Button
+                android:id="@+id/btnSaveOffsets"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/save" />
+        </LinearLayout>
 
+        <TextView style="@style/FieldLabel" android:text="@string/arrive_early_label" />
+        <Spinner android:id="@+id/spinnerArriveEarly" style="@style/Field" />
+
+        <TextView style="@style/FieldLabel" android:text="@string/default_travel_label" />
+        <Spinner android:id="@+id/spinnerDefaultTravel" style="@style/Field" />
+
+        <TextView style="@style/FieldLabel" android:text="@string/snooze_label" />
+        <Spinner android:id="@+id/spinnerSnooze" style="@style/Field" />
+
+        <CheckBox android:id="@+id/checkFirstOnly" style="@style/Field" android:text="@string/first_only" />
+        <CheckBox android:id="@+id/checkSkipDeclined" style="@style/Field" android:text="@string/skip_declined" />
+
+        <TextView style="@style/SectionLabel" android:text="@string/places_label" />
+        <TextView style="@style/Hint" android:text="@string/places_hint" />
         <LinearLayout
-            android:id="@+id/upcomingList"
+            android:id="@+id/placeList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <EditText
+                android:id="@+id/editPlaceKeyword"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="2"
+                android:hint="@string/place_keyword_hint"
+                android:importantForAutofill="no"
+                android:inputType="text" />
+            <EditText
+                android:id="@+id/editPlaceMinutes"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="@string/minutes_hint"
+                android:importantForAutofill="no"
+                android:inputType="number" />
+            <Button
+                android:id="@+id/btnAddPlace"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/add" />
+        </LinearLayout>
+
+        <TextView style="@style/SectionLabel" android:text="@string/timetable_label" />
+        <CheckBox android:id="@+id/checkTimetable" style="@style/Field" android:text="@string/timetable_enabled" />
+        <CheckBox android:id="@+id/checkHolidays" style="@style/Field" android:text="@string/timetable_holidays" />
+        <LinearLayout
+            android:id="@+id/timetableList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Spinner
+                android:id="@+id/spinnerTtDay"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp" />
+            <Button
+                android:id="@+id/btnTtTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+            <EditText
+                android:id="@+id/editTtName"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="@string/tt_name_hint"
+                android:importantForAutofill="no"
+                android:inputType="text" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <EditText
+                android:id="@+id/editTtPlace"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="@string/tt_place_hint"
+                android:importantForAutofill="no"
+                android:inputType="text" />
+            <Button
+                android:id="@+id/btnAddTt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/add" />
+        </LinearLayout>
+
+        <TextView style="@style/SectionLabel" android:text="@string/calendars_label" />
+        <LinearLayout
+            android:id="@+id/calendarList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical" />

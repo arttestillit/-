@@ -1,74 +1,128 @@
 package com.arttestillit.calendaralarm
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
+/** 会話で出た実際の1週間（2026/11/8〜）を使ったテスト。 */
 class AlarmPlannerTest {
-    private val min = 60_000L
-    private val now = 1_000_000_000_000L
+    private val zone = ZoneId.of("Asia/Tokyo")
+    private val day = 24 * 60 * 60 * 1000L
 
-    private fun ev(id: Long, beginMin: Long, title: String = "予定$id", cal: Long = 1, allDay: Boolean = false,
-                   declined: Boolean = false, canceled: Boolean = false) =
-        CalendarEvent(id, title, now + beginMin * min, now + (beginMin + 60) * min, allDay, cal,
-            declined = declined, canceled = canceled)
+    private fun at(m: Int, d: Int, h: Int, min: Int = 0) =
+        LocalDateTime.of(2026, m, d, h, min).atZone(zone).toInstant().toEpochMilli()
+
+    private fun hm(millis: Long) = java.time.Instant.ofEpochMilli(millis).atZone(zone).toLocalTime().toString()
+
+    private fun ev(id: Long, begin: Long, title: String, location: String? = null, cal: Long = 1) =
+        CalendarEvent(id, title, begin, begin + 3_600_000, false, cal, location)
+
+    private val settings = AlarmSettings(
+        arriveEarlyMinutes = 10,
+        alarmOffsets = listOf(50, 40),
+        places = Prefs.DEFAULT_PLACES,
+        timetable = Prefs.DEFAULT_TIMETABLE,
+    )
+    private val now = at(11, 8, 4, 3) // スクショの時刻
+
+    private fun outings(events: List<CalendarEvent>, s: AlarmSettings = settings, n: Long = now) =
+        AlarmPlanner.outings(events, s, n, zone, n + 7 * day)
 
     @Test
-    fun alarmRingsLeadMinutesBeforeEvent() {
-        val c = AlarmPlanner.candidates(listOf(ev(1, 120)), AlarmSettings(leadMinutes = 30), now)
-        assertEquals(now + 90 * min, c.single().triggerAt)
+    fun famimaAt12_departs1140_alarmsAt1050And1100() {
+        val o = outings(listOf(ev(1, at(11, 8, 12), "1217ファミマ"))).single { it.event.eventId == 1L }
+        assertEquals("ファミマ", o.place?.keyword)
+        assertEquals("11:40", hm(o.departure))
+        assertEquals(listOf("10:50", "11:00"), o.alarms.map { hm(it.at) })
     }
 
     @Test
-    fun skipsAllDayCanceledDeclinedAndExcludedCalendars() {
-        val events = listOf(
-            ev(1, 120, allDay = true), ev(2, 120, canceled = true), ev(3, 120, declined = true),
-            ev(4, 120, cal = 9), ev(5, 120),
-        )
-        val c = AlarmPlanner.candidates(events, AlarmSettings(excludedCalendarIds = setOf(9L)), now)
-        assertEquals(listOf(5L), c.map { it.event.eventId })
+    fun timetableClassesMatchTheConversation() {
+        val o = outings(emptyList()).filter { it.fromTimetable }
+        val byDay = o.associate { java.time.Instant.ofEpochMilli(it.event.begin).atZone(zone).toLocalDate().dayOfMonth to it }
+        assertEquals(listOf("07:00", "07:10"), byDay.getValue(10).alarms.map { hm(it.at) }) // 火 1限
+        assertEquals(listOf("07:00", "07:10"), byDay.getValue(11).alarms.map { hm(it.at) }) // 水 1限
+        assertEquals(listOf("10:55", "11:05"), byDay.getValue(12).alarms.map { hm(it.at) }) // 木 3限
+        assertEquals(listOf("12:40", "12:50"), byDay.getValue(13).alarms.map { hm(it.at) }) // 金 4限
     }
 
     @Test
-    fun declinedIncludedWhenOptionOff() {
-        val c = AlarmPlanner.candidates(listOf(ev(3, 120, declined = true)), AlarmSettings(skipDeclined = false), now)
-        assertEquals(1, c.size)
+    fun secondOutingOfDayIsMuted() {
+        // 11/12 は 3限のあと16時ファミマへ直行
+        val o = outings(listOf(ev(2, at(11, 12, 16), "1217ファミマ")))
+        val famima = o.single { it.event.eventId == 2L }
+        assertEquals(MuteReason.NOT_FIRST_OF_DAY, famima.muted)
+        val plan = AlarmPlanner.plan(o, true)
+        assertTrue(plan.none { a -> a.items.any { it.first.event.eventId == 2L } })
     }
 
     @Test
-    fun dropsAlarmsWhoseTimeHasPassedOrBeyondHorizon() {
-        val events = listOf(ev(1, 10), ev(2, 31), ev(3, 600))
-        val c = AlarmPlanner.candidates(events, AlarmSettings(leadMinutes = 30), now, horizon = now + 120 * min)
-        assertEquals(listOf(2L), c.map { it.event.eventId })
+    fun skippingFirstMakesNextOneFirst() {
+        val cls = outings(emptyList()).first { it.fromTimetable && hm(it.event.begin) == "12:55" }
+        val s = settings.copy(skippedEventKeys = setOf(cls.event.key)) // 休講
+        val famima = outings(listOf(ev(2, at(11, 12, 16), "1217ファミマ")), s).single { it.event.eventId == 2L }
+        assertNull(famima.muted)
+        assertEquals("15:40", hm(famima.departure))
     }
 
     @Test
-    fun skippedEventsAreListedButNotPlanned() {
-        val e = ev(1, 120)
-        val settings = AlarmSettings(skippedEventKeys = setOf(e.key))
-        val c = AlarmPlanner.candidates(listOf(e, ev(2, 180)), settings, now)
-        assertTrue(c.first().skipped)
-        assertEquals(listOf(2L), AlarmPlanner.plan(c, true).flatMap { a -> a.events.map { it.eventId } })
+    fun alreadyOutTodayMeansNoAlarmForLaterEvent() {
+        val n = at(11, 8, 13)
+        val o = outings(listOf(ev(1, at(11, 8, 12), "1217ファミマ"), ev(2, at(11, 8, 18), "夕飯")), n = n)
+        assertEquals(MuteReason.NOT_FIRST_OF_DAY, o.single { it.event.eventId == 2L }.muted)
     }
 
     @Test
-    fun eventsAtSameTimeShareOneAlarm() {
-        val c = AlarmPlanner.candidates(listOf(ev(1, 120, "会議"), ev(2, 120, "会議"), ev(3, 120, "電話")),
-            AlarmSettings(), now)
-        val plan = AlarmPlanner.plan(c, true)
-        assertEquals(1, plan.size)
-        assertEquals("会議 / 電話", plan.single().title)
+    fun firstOnlyCanBeTurnedOff() {
+        val o = outings(listOf(ev(2, at(11, 12, 16), "1217ファミマ")), settings.copy(firstOutingOnly = false))
+        assertNull(o.single { it.event.eventId == 2L }.muted)
     }
 
     @Test
-    fun recurringInstancesAreDistinct() {
-        val c = AlarmPlanner.candidates(listOf(ev(1, 120), ev(1, 120 + 24 * 60)), AlarmSettings(), now)
-        assertEquals(2, AlarmPlanner.plan(c, true).size)
+    fun unknownPlaceUsesDefaultTravel() {
+        val o = outings(listOf(ev(3, at(11, 9, 20), "飲み会"))).single { it.event.eventId == 3L }
+        assertNull(o.place)
+        assertEquals("19:20", hm(o.departure)) // 20:00 - 10分 - 既定30分
+    }
+
+    @Test
+    fun placeMatchesLocationAndPrefersLongestKeyword() {
+        val s = settings.copy(places = listOf(Place("駅", 5), Place("新宿駅", 40)))
+        val o = outings(listOf(ev(4, at(11, 9, 18), "待ち合わせ", location = "新宿駅東口")), s)
+            .single { it.event.eventId == 4L }
+        assertEquals(40, o.travelMinutes)
+    }
+
+    @Test
+    fun holidaySkipsTimetable() {
+        val utcMidnight = LocalDateTime.of(2026, 11, 10, 0, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
+        val holiday = CalendarEvent(99, "祝日", utcMidnight, utcMidnight + day, true, 5, holiday = true)
+        val o = outings(listOf(holiday))
+        assertTrue(o.none { it.fromTimetable && hm(it.event.begin) == "09:00" && it.event.begin < at(11, 11, 0) })
+        assertTrue(o.any { it.fromTimetable && it.event.begin == at(11, 11, 9) })
+    }
+
+    @Test
+    fun alarmsBeyondTwentyFourHoursAreScheduled() {
+        val plan = AlarmPlanner.plan(outings(emptyList()), true)
+        assertTrue(plan.any { it.triggerAt > now + 3 * day })
+    }
+
+    @Test
+    fun sameTimeAlarmsAreMergedAndPastOnesDropped() {
+        val s = settings.copy(firstOutingOnly = false, timetableEnabled = false)
+        val o = outings(listOf(ev(1, at(11, 9, 14), "1217ファミマ"), ev(2, at(11, 9, 14), "シフト ファミマ")), s)
+        assertEquals(2, AlarmPlanner.plan(o, true).size)
+        val late = outings(listOf(ev(1, at(11, 8, 4, 45), "1217ファミマ")), s).single()
+        assertTrue(late.alarms.isEmpty()) // 出発 4:25 の50分前・40分前はもう過ぎている
     }
 
     @Test
     fun disabledPlansNothing() {
-        val c = AlarmPlanner.candidates(listOf(ev(1, 120)), AlarmSettings(), now)
-        assertTrue(AlarmPlanner.plan(c, false).isEmpty())
+        assertTrue(AlarmPlanner.plan(outings(emptyList()), false).isEmpty())
     }
 }

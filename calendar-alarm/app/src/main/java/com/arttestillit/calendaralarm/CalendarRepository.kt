@@ -36,6 +36,11 @@ class CalendarRepository(context: Context) {
         return result
     }
 
+    private companion object {
+        /** Googleカレンダーの「日本の祝日」など。 */
+        val HOLIDAY_CALENDAR = Regex("祝日|休日|holiday", RegexOption.IGNORE_CASE)
+    }
+
     /** [from, to] に重なる予定インスタンス（繰り返し展開済み）を返す。 */
     fun events(from: Long, to: Long): List<CalendarEvent> {
         if (!hasPermission()) return emptyList()
@@ -45,23 +50,25 @@ class CalendarRepository(context: Context) {
         }.build()
         val projection = arrayOf(
             i.EVENT_ID, i.TITLE, i.BEGIN, i.END, i.ALL_DAY, i.CALENDAR_ID,
-            i.EVENT_LOCATION, i.SELF_ATTENDEE_STATUS, i.STATUS,
+            i.EVENT_LOCATION, i.SELF_ATTENDEE_STATUS, i.STATUS, i.CALENDAR_DISPLAY_NAME,
         )
         val result = mutableListOf<CalendarEvent>()
         ctx.contentResolver.query(uri, projection, "${i.VISIBLE} = 1", null, "${i.BEGIN} ASC")?.use { cur ->
             while (cur.moveToNext()) {
+                val allDay = cur.getInt(4) != 0
                 result += CalendarEvent(
                     eventId = cur.getLong(0),
                     title = cur.getString(1).orEmpty(),
                     begin = cur.getLong(2),
                     end = cur.getLong(3),
-                    allDay = cur.getInt(4) != 0,
+                    allDay = allDay,
                     calendarId = cur.getLong(5),
                     location = cur.getString(6),
                     declined = !cur.isNull(7) &&
                         cur.getInt(7) == CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED,
                     canceled = !cur.isNull(8) &&
                         cur.getInt(8) == CalendarContract.Events.STATUS_CANCELED,
+                    holiday = allDay && HOLIDAY_CALENDAR.containsMatchIn(cur.getString(9).orEmpty()),
                 )
             }
         }

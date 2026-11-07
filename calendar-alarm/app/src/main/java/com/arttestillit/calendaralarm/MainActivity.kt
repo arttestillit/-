@@ -3,6 +3,7 @@ package com.arttestillit.calendaralarm
 import android.Manifest
 import android.app.Activity
 import android.app.NotificationManager
+import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -15,6 +16,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.Switch
@@ -31,46 +33,35 @@ class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
 
     private lateinit var permissionBox: LinearLayout
-    private lateinit var switchEnabled: Switch
     private lateinit var nextAlarm: TextView
-    private lateinit var spinnerLead: Spinner
-    private lateinit var spinnerSnooze: Spinner
-    private lateinit var checkSkipDeclined: CheckBox
-    private lateinit var calendarList: LinearLayout
     private lateinit var upcomingList: LinearLayout
+    private lateinit var placeList: LinearLayout
+    private lateinit var timetableList: LinearLayout
+    private lateinit var calendarList: LinearLayout
+    private lateinit var editOffsets: EditText
+    private lateinit var btnTtTime: Button
 
-    private val leadOptions = listOf(0, 5, 10, 15, 20, 30, 45, 60, 90, 120)
-    private val snoozeOptions = listOf(1, 3, 5, 10, 15)
-    private val dateFormat = SimpleDateFormat("M/d(E) HH:mm", Locale.JAPAN)
+    private var ttMinute = 9 * 60
+    private val dayNames = listOf("月", "火", "水", "木", "金", "土", "日")
+    private val dateFormat = SimpleDateFormat("M/d(E)", Locale.JAPAN)
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.JAPAN)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         permissionBox = findViewById(R.id.permissionBox)
-        switchEnabled = findViewById(R.id.switchEnabled)
         nextAlarm = findViewById(R.id.nextAlarm)
-        spinnerLead = findViewById(R.id.spinnerLead)
-        spinnerSnooze = findViewById(R.id.spinnerSnooze)
-        checkSkipDeclined = findViewById(R.id.checkSkipDeclined)
-        calendarList = findViewById(R.id.calendarList)
         upcomingList = findViewById(R.id.upcomingList)
+        placeList = findViewById(R.id.placeList)
+        timetableList = findViewById(R.id.timetableList)
+        calendarList = findViewById(R.id.calendarList)
+        editOffsets = findViewById(R.id.editOffsets)
+        btnTtTime = findViewById(R.id.btnTtTime)
 
         AlarmNotifier.ensureChannel(this)
-
-        switchEnabled.isChecked = prefs.enabled
-        switchEnabled.setOnCheckedChangeListener { _, checked -> prefs.enabled = checked; refresh() }
-
-        checkSkipDeclined.isChecked = prefs.skipDeclined
-        checkSkipDeclined.setOnCheckedChangeListener { _, checked -> prefs.skipDeclined = checked; refresh() }
-
-        setupSpinner(spinnerLead, leadOptions, { prefs.leadMinutes }, { if (it == 0) "開始時刻ちょうど" else "${it}分前" }) {
-            prefs.leadMinutes = it
-            refresh()
-        }
-        setupSpinner(spinnerSnooze, snoozeOptions, { prefs.snoozeMinutes }, { "${it}分" }) {
-            prefs.snoozeMinutes = it
-        }
+        setupSettings()
+        setupPlaces()
+        setupTimetable()
 
         findViewById<Button>(R.id.btnSync).setOnClickListener {
             refresh()
@@ -97,24 +88,124 @@ class MainActivity : Activity() {
         refresh()
     }
 
-    private fun deniedRuntimePermissions(): List<String> = buildList {
-        add(Manifest.permission.READ_CALENDAR)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-    }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+    // ---- 設定 ----
 
-    private fun requestRuntimePermissions() {
-        val needed = deniedRuntimePermissions()
-        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 1)
+    private fun setupSettings() {
+        findViewById<Switch>(R.id.switchEnabled).apply {
+            isChecked = prefs.enabled
+            setOnCheckedChangeListener { _, v -> prefs.enabled = v; refresh() }
+        }
+        editOffsets.setText(prefs.alarmOffsets.joinToString(","))
+        findViewById<Button>(R.id.btnSaveOffsets).setOnClickListener {
+            val offsets = Prefs.parseOffsets(editOffsets.text.toString())
+            if (offsets.isEmpty()) {
+                Toast.makeText(this, "分を数字で入力してください（例：50,40）", Toast.LENGTH_SHORT).show()
+            } else {
+                prefs.alarmOffsets = offsets
+                editOffsets.setText(offsets.joinToString(","))
+                refresh()
+                Toast.makeText(this, "出発の ${offsets.joinToString("分前・")}分前 に鳴らします", Toast.LENGTH_SHORT).show()
+            }
+        }
+        setupSpinner(findViewById(R.id.spinnerArriveEarly), listOf(0, 5, 10, 15, 20, 30),
+            { prefs.arriveEarlyMinutes }, { if (it == 0) "ちょうどに着く" else "${it}分前" }) {
+            prefs.arriveEarlyMinutes = it; refresh()
+        }
+        setupSpinner(findViewById(R.id.spinnerDefaultTravel), listOf(0, 10, 15, 20, 30, 45, 60, 90, 120),
+            { prefs.defaultTravelMinutes }, { "${it}分" }) {
+            prefs.defaultTravelMinutes = it; refresh()
+        }
+        setupSpinner(findViewById(R.id.spinnerSnooze), listOf(1, 3, 5, 10, 15),
+            { prefs.snoozeMinutes }, { "${it}分" }) {
+            prefs.snoozeMinutes = it
+        }
+        bindCheck(R.id.checkFirstOnly, { prefs.firstOutingOnly }) { prefs.firstOutingOnly = it }
+        bindCheck(R.id.checkSkipDeclined, { prefs.skipDeclined }) { prefs.skipDeclined = it }
+        bindCheck(R.id.checkTimetable, { prefs.timetableEnabled }) { prefs.timetableEnabled = it }
+        bindCheck(R.id.checkHolidays, { prefs.skipTimetableOnHolidays }) { prefs.skipTimetableOnHolidays = it }
     }
 
-    /** バックグラウンドで同期し、結果で画面を描き直す。 */
+    private fun bindCheck(id: Int, get: () -> Boolean, set: (Boolean) -> Unit) {
+        findViewById<CheckBox>(id).apply {
+            isChecked = get()
+            setOnCheckedChangeListener { _, v -> set(v); refresh() }
+        }
+    }
+
+    // ---- 場所 ----
+
+    private fun setupPlaces() {
+        val keyword = findViewById<EditText>(R.id.editPlaceKeyword)
+        val minutes = findViewById<EditText>(R.id.editPlaceMinutes)
+        findViewById<Button>(R.id.btnAddPlace).setOnClickListener {
+            val k = keyword.text.toString().trim()
+            val m = minutes.text.toString().trim().toIntOrNull()
+            if (k.isEmpty() || m == null || m !in 0..600) {
+                Toast.makeText(this, "場所の言葉と移動時間（分）を入力してください", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            prefs.places = prefs.places.filterNot { it.keyword == k } + Place(k, m)
+            keyword.text.clear(); minutes.text.clear()
+            renderPlaces(); refresh()
+        }
+        renderPlaces()
+    }
+
+    private fun renderPlaces() {
+        placeList.removeAllViews()
+        prefs.places.forEach { p ->
+            placeList.addView(removableRow("${p.keyword}　→　移動 ${p.travelMinutes}分") {
+                prefs.places = prefs.places - p
+                renderPlaces(); refresh()
+            })
+        }
+    }
+
+    // ---- 時間割 ----
+
+    private fun setupTimetable() {
+        val day = findViewById<Spinner>(R.id.spinnerTtDay)
+        day.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, dayNames)
+        btnTtTime.text = hm(ttMinute)
+        btnTtTime.setOnClickListener {
+            TimePickerDialog(this, { _, h, m -> ttMinute = h * 60 + m; btnTtTime.text = hm(ttMinute) },
+                ttMinute / 60, ttMinute % 60, true).show()
+        }
+        val name = findViewById<EditText>(R.id.editTtName)
+        val place = findViewById<EditText>(R.id.editTtPlace)
+        findViewById<Button>(R.id.btnAddTt).setOnClickListener {
+            val entry = TimetableEntry(
+                dayOfWeek = day.selectedItemPosition + 1,
+                startMinute = ttMinute,
+                name = name.text.toString().trim().ifEmpty { "授業" },
+                place = place.text.toString().trim(),
+            )
+            prefs.timetable = (prefs.timetable.filterNot { it.dayOfWeek == entry.dayOfWeek && it.startMinute == entry.startMinute } + entry)
+                .sortedWith(compareBy({ it.dayOfWeek }, { it.startMinute }))
+            name.text.clear()
+            renderTimetable(); refresh()
+        }
+        renderTimetable()
+    }
+
+    private fun renderTimetable() {
+        timetableList.removeAllViews()
+        prefs.timetable.forEach { e ->
+            val where = if (e.place.isBlank()) "" else "　@${e.place}"
+            timetableList.addView(removableRow("${dayNames[e.dayOfWeek - 1]}　${hm(e.startMinute)}　${e.name}$where") {
+                prefs.timetable = prefs.timetable - e
+                renderTimetable(); refresh()
+            })
+        }
+    }
+
+    // ---- 同期と描画 ----
+
     private fun refresh() {
         worker.execute {
             val result = AlarmScheduler.sync(this)
             val calendars = repo.calendars()
-            runOnUiThread {
-                if (!isFinishing) render(result, calendars)
-            }
+            runOnUiThread { if (!isFinishing) render(result, calendars) }
         }
     }
 
@@ -124,9 +215,15 @@ class MainActivity : Activity() {
         nextAlarm.text = when {
             !prefs.enabled -> "自動アラームはオフです"
             result.plan.isEmpty() -> "セット中のアラームはありません"
-            else -> result.plan.first().let { "次のアラーム：${dateFormat.format(Date(it.triggerAt))}　${it.title}" } +
-                if (result.plan.size > 1) "（ほか${result.plan.size - 1}件）" else ""
+            else -> result.plan.first().let { a ->
+                "次のアラーム：${dateFormat.format(Date(a.triggerAt))} ${timeFormat.format(Date(a.triggerAt))}" +
+                    "（${a.items.first().first.title}）\nこの先1週間で ${result.plan.size} 回セット済み"
+            }
         }
+
+        upcomingList.removeAllViews()
+        if (result.outings.isEmpty()) upcomingList.addView(hint(getString(R.string.no_events)))
+        result.outings.forEach { upcomingList.addView(outingRow(it)) }
 
         calendarList.removeAllViews()
         if (calendars.isEmpty()) calendarList.addView(hint(getString(R.string.no_calendars)))
@@ -144,24 +241,45 @@ class MainActivity : Activity() {
                 }
             })
         }
+    }
 
-        upcomingList.removeAllViews()
-        if (result.candidates.isEmpty()) upcomingList.addView(hint(getString(R.string.no_events)))
-        result.candidates.forEach { c ->
-            val e = c.event
-            upcomingList.addView(CheckBox(this).apply {
-                text = "${dateFormat.format(Date(c.triggerAt))} に鳴る\n" +
-                    "${timeFormat.format(Date(e.begin))}〜 ${e.title.ifBlank { PlannedAlarm.UNTITLED }}"
-                isChecked = !c.skipped
-                isEnabled = prefs.enabled
-                minHeight = dp(48)
-                setOnCheckedChangeListener { _, checked ->
-                    prefs.skippedEventKeys =
-                        if (checked) prefs.skippedEventKeys - e.key else prefs.skippedEventKeys + e.key
-                    refresh()
-                }
+    private fun outingRow(o: Outing): View {
+        val e = o.event
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val tag = if (o.fromTimetable) "［時間割］" else ""
+        val via = o.place?.let { "${it.keyword}・移動${o.travelMinutes}分" } ?: "移動${o.travelMinutes}分"
+        val alarms = when {
+            o.muted == MuteReason.NOT_FIRST_OF_DAY -> "この日は先に出かけているので鳴らしません"
+            o.muted == MuteReason.SKIPPED -> "鳴らしません"
+            o.alarms.isEmpty() -> "アラーム時刻は過ぎています"
+            else -> "⏰ " + o.alarms.joinToString(" / ") { timeFormat.format(Date(it.at)) }
+        }
+        box.addView(CheckBox(this).apply {
+            text = "${dateFormat.format(Date(e.begin))} ${timeFormat.format(Date(e.begin))}　$tag${o.title}\n" +
+                "出発 ${timeFormat.format(Date(o.departure))}（$via）\n$alarms"
+            isChecked = o.muted != MuteReason.SKIPPED
+            isEnabled = prefs.enabled
+            alpha = if (o.active) 1f else 0.55f
+            minHeight = dp(48)
+            setOnCheckedChangeListener { _, checked ->
+                prefs.skippedEventKeys =
+                    if (checked) prefs.skippedEventKeys - e.key else prefs.skippedEventKeys + e.key
+                refresh()
+            }
+        })
+        if (o.place == null && o.active) {
+            box.addView(TextView(this).apply {
+                text = "⚠ 場所が未登録です。「場所と移動時間」に登録すると正確になります" +
+                    (e.location?.takeIf(String::isNotBlank)?.let { "（場所：$it）" } ?: "（予定に場所が入っていません）")
+                setTextColor(getColor(R.color.warning))
+                textSize = 12f
+                setPadding(dp(32), 0, 0, 0)
             })
         }
+        return box
     }
 
     private fun renderPermissions(result: SyncResult) {
@@ -189,15 +307,38 @@ class MainActivity : Activity() {
         permissionBox.visibility = if (permissionBox.childCount == 0) View.GONE else View.VISIBLE
     }
 
+    // ---- 権限 ----
+
+    private fun deniedRuntimePermissions(): List<String> = buildList {
+        add(Manifest.permission.READ_CALENDAR)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+    }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+
+    private fun requestRuntimePermissions() {
+        val needed = deniedRuntimePermissions()
+        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 1)
+    }
+
     private fun openAppSettingsOrRequest() {
-        val denied = deniedRuntimePermissions()
-        if (denied.any { shouldShowRequestPermissionRationale(it) }) {
+        if (deniedRuntimePermissions().any { shouldShowRequestPermissionRationale(it) }) {
             requestRuntimePermissions()
         } else {
             // 「今後表示しない」状態ではダイアログが出ないので、アプリ設定を開く
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
     }
+
+    private fun testAlarm() {
+        if (!AlarmScheduler.canScheduleExact(this)) {
+            Toast.makeText(this, "「アラームとリマインダー」の権限を許可してください", Toast.LENGTH_LONG).show()
+            return
+        }
+        val at = System.currentTimeMillis() + 10_000
+        AlarmScheduler.schedule(this, AlarmInfo("test", "テストアラーム", "10秒後に鳴るテストです"), at)
+        Toast.makeText(this, "10秒後に鳴ります（画面を消して試せます）", Toast.LENGTH_LONG).show()
+    }
+
+    // ---- 部品 ----
 
     private fun warning(message: String, button: String, onClick: () -> Unit) {
         permissionBox.addView(TextView(this).apply {
@@ -211,14 +352,18 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun testAlarm() {
-        if (!AlarmScheduler.canScheduleExact(this)) {
-            Toast.makeText(this, "「アラームとリマインダー」の権限を許可してください", Toast.LENGTH_LONG).show()
-            return
-        }
-        val at = System.currentTimeMillis() + 10_000
-        AlarmScheduler.schedule(this, AlarmInfo("test", "テストアラーム", at, null), at)
-        Toast.makeText(this, "10秒後に鳴ります（画面を消して試せます）", Toast.LENGTH_LONG).show()
+    private fun removableRow(label: String, onRemove: () -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        addView(TextView(context).apply {
+            text = label
+            textSize = 15f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        })
+        addView(Button(context, null, android.R.attr.borderlessButtonStyle).apply {
+            text = "削除"
+            setOnClickListener { onRemove() }
+        })
     }
 
     private fun setupSpinner(
@@ -245,6 +390,8 @@ class MainActivity : Activity() {
         alpha = 0.7f
         setPadding(0, dp(8), 0, dp(8))
     }
+
+    private fun hm(minuteOfDay: Int) = "%d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

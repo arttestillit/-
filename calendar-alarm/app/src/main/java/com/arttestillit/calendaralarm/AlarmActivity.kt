@@ -42,7 +42,7 @@ class AlarmActivity : Activity() {
         findViewById<TextView>(R.id.alarmClock).text =
             SimpleDateFormat("HH:mm", Locale.JAPAN).format(Date())
         findViewById<TextView>(R.id.alarmTitle).text = i.title
-        findViewById<TextView>(R.id.alarmDetail).text = AlarmNotifier.detailText(i)
+        findViewById<TextView>(R.id.alarmDetail).text = i.detail
         findViewById<Button>(R.id.btnSnooze).text =
             "${getString(R.string.snooze)}（${Prefs(this).snoozeMinutes}分）"
     }
