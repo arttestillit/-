@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">予定アラーム</string>
+    <string name="enable_switch">カレンダーの予定から自動でアラームをセット</string>
+    <string name="lead_label">予定の何分前に鳴らす</string>
+    <string name="snooze_label">スヌーズ間隔</string>
+    <string name="skip_declined">「不参加」にした予定は鳴らさない</string>
+    <string name="calendars_label">対象カレンダー</string>
+    <string name="upcoming_label">これからのアラーム（48時間以内）</string>
+    <string name="upcoming_hint">チェックを外した予定は鳴りません。</string>
+    <string name="sync_now">今すぐ同期</string>
+    <string name="test_alarm">テストアラーム（10秒後）</string>
+    <string name="stop">停止</string>
+    <string name="snooze">スヌーズ</string>
+    <string name="channel_name">予定アラーム</string>
+    <string name="channel_desc">カレンダーの予定に合わせて鳴るアラーム</string>
+    <string name="no_events">対象の予定はありません。</string>
+    <string name="no_calendars">カレンダーが見つかりません。</string>
+</resources>

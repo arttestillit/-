@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:id="@+id/permissionBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <Switch
+            android:id="@+id/switchEnabled"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/enable_switch"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/nextAlarm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textSize="14sp" />
+
+        <TextView
+            style="@style/SectionLabel"
+            android:text="@string/lead_label" />
+
+        <Spinner
+            android:id="@+id/spinnerLead"
+            android:layout_width="match_parent"
+            android:layout_height="48dp" />
+
+        <TextView
+            style="@style/SectionLabel"
+            android:text="@string/snooze_label" />
+
+        <Spinner
+            android:id="@+id/spinnerSnooze"
+            android:layout_width="match_parent"
+            android:layout_height="48dp" />
+
+        <CheckBox
+            android:id="@+id/checkSkipDeclined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/skip_declined" />
+
+        <TextView
+            style="@style/SectionLabel"
+            android:text="@string/calendars_label" />
+
+        <LinearLayout
+            android:id="@+id/calendarList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView
+            style="@style/SectionLabel"
+            android:text="@string/upcoming_label" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alpha="0.7"
+            android:text="@string/upcoming_hint"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:id="@+id/upcomingList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/btnSync"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/sync_now" />
+
+        <Button
+            android:id="@+id/btnTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/test_alarm" />
+    </LinearLayout>
+</ScrollView>
