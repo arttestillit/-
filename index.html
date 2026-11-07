@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>投網シミュレーション</title>
+<style>
+:root{
+  --panel:rgba(255,255,255,.92);--text:#1d2630;--muted:#5b6672;--accent:#0b6e8a;
+  --border:rgba(0,0,0,.12);--btn:#0b6e8a;--btn-text:#fff;--btn2:#e7eef2;--btn2-text:#1d2630;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --panel:rgba(16,22,30,.9);--text:#e6edf3;--muted:#9aa7b4;--accent:#5cc8e6;
+    --border:rgba(255,255,255,.14);--btn:#2a9fc0;--btn-text:#fff;--btn2:#26313d;--btn2-text:#e6edf3;
+  }
+}
+:root[data-theme="dark"]{
+  --panel:rgba(16,22,30,.9);--text:#e6edf3;--muted:#9aa7b4;--accent:#5cc8e6;
+  --border:rgba(255,255,255,.14);--btn:#2a9fc0;--btn-text:#fff;--btn2:#26313d;--btn2-text:#e6edf3;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#0d2233;color:var(--text);
+  font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif}
+canvas{display:block;width:100vw;height:100vh;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+#panel{position:absolute;top:16px;left:16px;width:310px;max-width:calc(100% - 32px);
+  max-height:calc(100% - 32px);overflow:auto;background:var(--panel);border:1px solid var(--border);
+  border-radius:12px;padding:12px 14px;backdrop-filter:blur(6px);font-size:13px;
+  box-shadow:0 6px 24px rgba(0,0,0,.18)}
+summary{cursor:pointer;font-weight:700;font-size:16px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"▾";color:var(--muted);font-size:13px}
+details:not([open]) summary::after{content:"▸"}
+.row{display:grid;grid-template-columns:96px 1fr 44px;align-items:center;gap:8px;margin:7px 0}
+.row label{color:var(--muted)}
+.row output{text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btns{display:flex;gap:6px;margin:10px 0 6px;flex-wrap:wrap}
+button{flex:1;min-width:70px;border:0;border-radius:8px;padding:9px 6px;font:inherit;font-weight:700;
+  background:var(--btn);color:var(--btn-text);cursor:pointer}
+button.sub{background:var(--btn2);color:var(--btn2-text);font-weight:600}
+button:disabled{opacity:.4;cursor:default}
+.views{display:flex;gap:4px;margin-top:4px}
+.views button{padding:6px 4px;font-size:12px}
+#stats{margin-top:8px;border-top:1px solid var(--border);padding-top:8px;display:grid;
+  grid-template-columns:auto 1fr;gap:3px 10px;font-variant-numeric:tabular-nums}
+#stats span:nth-child(odd){color:var(--muted)}
+#state{font-weight:700;color:var(--accent)}
+.hint{color:var(--muted);font-size:11.5px;margin-top:8px;line-height:1.5}
+.chk{display:flex;align-items:center;gap:6px;margin:6px 0;color:var(--muted)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="panel"><details open>
+  <summary>投網シミュレーション</summary>
+  <div class="row"><label for="power">投げる速さ</label><input id="power" type="range" min="5" max="14" step="0.5" value="9"><output id="powerV"></output></div>
+  <div class="row"><label for="angle">投射角 (°)</label><input id="angle" type="range" min="10" max="65" step="1" value="35"><output id="angleV"></output></div>
+  <div class="row"><label for="yaw">方向 (°)</label><input id="yaw" type="range" min="-35" max="35" step="1" value="0"><output id="yawV"></output></div>
+  <div class="row"><label for="spin">回転 (m/s)</label><input id="spin" type="range" min="0" max="12" step="0.5" value="6"><output id="spinV"></output></div>
+  <div class="row"><label for="open">開き (m/s)</label><input id="open" type="range" min="0" max="5" step="0.25" value="2"><output id="openV"></output></div>
+  <div class="row"><label for="sinker">錘の重さ (倍)</label><input id="sinker" type="range" min="2" max="25" step="1" value="10"><output id="sinkerV"></output></div>
+  <div class="row"><label for="depth">水深 (m)</label><input id="depth" type="range" min="1.5" max="5" step="0.25" value="3"><output id="depthV"></output></div>
+  <label class="chk"><input id="slow" type="checkbox"> スローモーション</label>
+  <div class="btns">
+    <button id="bThrow">投げる</button>
+    <button id="bHaul" disabled>引き上げる</button>
+    <button id="bReset" class="sub">リセット</button>
+  </div>
+  <div class="views">
+    <button class="sub" data-v="side">横から</button>
+    <button class="sub" data-v="back">後方</button>
+    <button class="sub" data-v="top">俯瞰</button>
+  </div>
+  <div id="stats">
+    <span>状態</span><span id="state">待機</span>
+    <span>飛行時間</span><span id="sFlight">—</span>
+    <span>最大展開径</span><span id="sDiam">—</span>
+    <span>着底時の径</span><span id="sLand">—</span>
+    <span>漁獲</span><span id="sCatch">—</span>
+  </div>
+  <div class="hint">ドラッグで視点回転・ホイールでズーム。<br>回転を加えると遠心力で網が円く開きます。網が着底してから引き上げると、錘が中央へ絞られて魚を包み込みます。<br>キー: Space 投げる / H 引き上げ / R リセット</div>
+</details></div>
+<script>
+(() => {
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0;
+function resize(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize); resize();
+
+// ---------- parameters ----------
+const P = {};
+['power','angle','yaw','spin','open','sinker','depth'].forEach(id => {
+  const el = document.getElementById(id), out = document.getElementById(id + 'V');
+  const upd = () => { P[id] = +el.value; out.textContent = el.value; };
+  el.addEventListener('input', () => { upd(); if (id === 'depth' && state === 'ready') reset(); });
+  upd();
+});
+const slowEl = document.getElementById('slow');
+
+// ---------- net topology ----------
+const NR = 12, NS = 36, RN = 3.0;          // rings, spokes, net radius (m)
+const N = 1 + NR * NS;
+const idx = (r, s) => r === 0 ? 0 : 1 + (r - 1) * NS + ((s % NS) + NS) % NS;
+const ringOf = new Int16Array(N), spokeOf = new Int16Array(N), kind = new Uint8Array(N);
+for (let r = 1; r <= NR; r++) for (let s = 0; s < NS; s++) {
+  const i = idx(r, s); ringOf[i] = r; spokeOf[i] = s; kind[i] = r === NR ? 2 : 1;
+}
+const sinkers = []; for (let s = 0; s < NS; s++) sinkers.push(idx(NR, s));
+const ca = [], cb = [], cr = [];
+for (let s = 0; s < NS; s++) { ca.push(0); cb.push(idx(1, s)); cr.push(RN / NR); }
+for (let r = 2; r <= NR; r++) for (let s = 0; s < NS; s++) { ca.push(idx(r-1, s)); cb.push(idx(r, s)); cr.push(RN / NR); }
+for (let r = 1; r <= NR; r++) for (let s = 0; s < NS; s++) {
+  ca.push(idx(r, s)); cb.push(idx(r, s + 1)); cr.push(2 * (RN * r / NR) * Math.sin(Math.PI / NS));
+}
+const NC = ca.length;
+
+const pos = new Float32Array(N * 3), prev = new Float32Array(N * 3), inv = new Float32Array(N);
+const camP = new Float32Array(N * 3);
+
+const HAND0 = [0.35, 1.75, 0.7];
+let hand = HAND0.slice();
+let state = 'ready', floorY = -3, lineLen = 12, purseRest = 0, haulT = 0;
+let flightT = 0, waterT = 0, maxD = 0, landD = 0, landed = false;
+let fish = [], ripples = [], caughtCount = 0, simTime = 0;
+
+const rand = (a, b) => a + Math.random() * (b - a);
+
+function reset(){
+  state = 'ready'; floorY = -P.depth; hand = HAND0.slice();
+  lineLen = 12; purseRest = 0; haulT = 0; flightT = 0; waterT = 0;
+  maxD = 0; landD = 0; landed = false; ripples = []; caughtCount = 0;
+  for (let i = 0; i < N; i++) {
+    const k = ringOf[i] / NR, th = 2 * Math.PI * spokeOf[i] / NS, rb = 0.06 + 0.42 * k;
+    pos[3*i]   = hand[0] + Math.cos(th) * rb;
+    pos[3*i+1] = hand[1] - 0.15 - 0.95 * k;
+    pos[3*i+2] = hand[2] + Math.sin(th) * rb;
+  }
+  prev.set(pos);
+  fish = [];
+  for (let i = 0; i < 70; i++) fish.push({
+    x: rand(-5, 5), z: rand(4, 15), y: rand(floorY + 0.3, -0.4),
+    a: rand(0, 6.283), s: rand(0.35, 0.8), ph: rand(0, 6.283),
+    caught: false, ox: rand(-1, 1), oy: rand(-1, 1), oz: rand(-1, 1), scared: 0,
+    silver: Math.random() < 0.6
+  });
+  updateUI();
+}
+
+function throwNet(){
+  if (state !== 'ready') reset();
+  state = 'flying';
+  const e = P.angle * Math.PI / 180, y = P.yaw * Math.PI / 180, h = H_STEP;
+  const vx = Math.sin(y) * Math.cos(e) * P.power, vy = Math.sin(e) * P.power, vz = Math.cos(y) * Math.cos(e) * P.power;
+  for (let i = 0; i < N; i++) {
+    inv[i] = kind[i] === 2 ? 1 / P.sinker : 1;
+    const k = ringOf[i] / NR, th = 2 * Math.PI * spokeOf[i] / NS;
+    const ux = Math.cos(th), uz = Math.sin(th);
+    const px = vx + ux * P.open * k - uz * P.spin * k;
+    const pz = vz + uz * P.open * k + ux * P.spin * k;
+    prev[3*i] = pos[3*i] - px * h; prev[3*i+1] = pos[3*i+1] - vy * h; prev[3*i+2] = pos[3*i+2] - pz * h;
+  }
+  updateUI();
+}
+
+function haul(){
+  if (state !== 'water' && state !== 'settled') return;
+  state = 'hauling'; haulT = 0;
+  const dx = pos[0]-hand[0], dy = pos[1]-hand[1], dz = pos[2]-hand[2];
+  lineLen = Math.min(lineLen, Math.hypot(dx, dy, dz));
+  let s = 0;
+  for (const i of sinkers) s += Math.hypot(pos[3*i]-pos[0], pos[3*i+1]-pos[1], pos[3*i+2]-pos[2]);
+  purseRest = s / NS;
+  const px = sinkers.map(i => pos[3*i]), pz = sinkers.map(i => pos[3*i+2]);
+  caughtCount = 0;
+  for (const f of fish) if (inPoly(f.x, f.z, px, pz)) { f.caught = true; caughtCount++; }
+  updateUI();
+}
+
+function inPoly(x, z, px, pz){
+  let c = false;
+  for (let i = 0, j = px.length - 1; i < px.length; j = i++)
+    if ((pz[i] > z) !== (pz[j] > z) && x < (px[j]-px[i]) * (z-pz[i]) / (pz[j]-pz[i]) + px[i]) c = !c;
+  return c;
+}
+
+// ---------- physics ----------
+const H_STEP = 1 / 240, ITER = 10, G = 9.8;
+const DRAG = { airM: 0.004, airS: 0.0004, watM: 0.004, watS: 0.01 };
+function constrain(a, b, rest){
+  const ax = 3*a, bx = 3*b;
+  const dx = pos[bx]-pos[ax], dy = pos[bx+1]-pos[ax+1], dz = pos[bx+2]-pos[ax+2];
+  const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  if (len <= rest || len < 1e-9) return;           // netting is slack under compression
+  const wa = inv[a], wb = inv[b], w = wa + wb; if (w === 0) return;
+  const f = (len - rest) / (len * w);
+  pos[ax] += dx*f*wa; pos[ax+1] += dy*f*wa; pos[ax+2] += dz*f*wa;
+  pos[bx] -= dx*f*wb; pos[bx+1] -= dy*f*wb; pos[bx+2] -= dz*f*wb;
+}
+function step(h){
+  const h2 = h * h;
+  for (let i = 0; i < N; i++) {
+    const o = 3*i, y = pos[o+1];
+    let vx = pos[o]-prev[o], vy = y-prev[o+1], vz = pos[o+2]-prev[o+2];
+    // light webbing feels more drag than the lead sinkers, so the net falls as a dome
+    let g = -G, damp = kind[i] === 2 ? DRAG.airS : DRAG.airM;
+    if (y < 0) {
+      if (kind[i] === 2) { g *= 0.88; damp = DRAG.watS; }
+      else { g *= 0.15; damp = DRAG.watM; }
+    }
+    vx *= 1 - damp; vy *= 1 - damp; vz *= 1 - damp;
+    prev[o] = pos[o]; prev[o+1] = y; prev[o+2] = pos[o+2];
+    pos[o] += vx; pos[o+1] += vy + g * h2; pos[o+2] += vz;
+    if (kind[i] === 2 && y >= 0 && pos[o+1] < 0 && (i % 2 === 0) && ripples.length < 160)
+      ripples.push({ x: pos[o], z: pos[o+2], t: 0 });
+  }
+  for (let it = 0; it < ITER; it++) {
+    for (let c = 0; c < NC; c++) constrain(ca[c], cb[c], cr[c]);
+    // hand line: center node tied to the thrower's hand
+    {
+      const dx = pos[0]-hand[0], dy = pos[1]-hand[1], dz = pos[2]-hand[2];
+      const len = Math.hypot(dx, dy, dz);
+      if (len > lineLen) { const f = (len - lineLen) / len; pos[0] -= dx*f; pos[1] -= dy*f; pos[2] -= dz*f; }
+    }
+    // brail lines: while hauling, sinkers are drawn toward the center (pursing)
+    if (state === 'hauling' || state === 'done') for (const s of sinkers) constrain(0, s, purseRest);
+  }
+  for (let i = 0; i < N; i++) {
+    const o = 3*i;
+    if (pos[o+1] < floorY) {
+      pos[o+1] = floorY;
+      prev[o] = pos[o] - (pos[o]-prev[o]) * 0.35;
+      prev[o+2] = pos[o+2] - (pos[o+2]-prev[o+2]) * 0.35;
+    }
+  }
+}
+
+function netMetrics(){
+  let cx = 0, cz = 0, cy = 0, onFloor = 0, under = 0;
+  for (const i of sinkers) {
+    cx += pos[3*i]; cy += pos[3*i+1]; cz += pos[3*i+2];
+    if (pos[3*i+1] < floorY + 0.12) onFloor++;
+    if (pos[3*i+1] < 0) under++;
+  }
+  cx /= NS; cy /= NS; cz /= NS;
+  let r = 0; for (const i of sinkers) r += Math.hypot(pos[3*i]-cx, pos[3*i+2]-cz);
+  r /= NS;
+  return { cx, cy, cz, r, onFloor: onFloor / NS, under: under / NS };
+}
+
+function updateFish(dt, m){
+  const netIn = state === 'water' || state === 'settled';
+  const px = landed ? sinkers.map(i => pos[3*i]) : null, pz = landed ? sinkers.map(i => pos[3*i+2]) : null;
+  for (const f of fish) {
+    if (f.caught) {
+      const bag = Math.max(0.12, m.r * 0.6);
+      const tx = m.cx + f.ox * bag, ty = Math.min(m.cy + 0.25, pos[1]) + f.oy * bag * 0.6 - 0.1, tz = m.cz + f.oz * bag;
+      const k = 1 - Math.exp(-5 * dt);
+      f.x += (tx - f.x) * k; f.y += (ty - f.y) * k; f.z += (tz - f.z) * k;
+      f.a += Math.sin(simTime * 9 + f.ph) * 0.15;
+      continue;
+    }
+    f.a += (Math.random() - 0.5) * 3 * dt;
+    if (f.x < -6 || f.x > 6 || f.z < 3.5 || f.z > 16) {
+      const want = Math.atan2(9 - f.z, 0 - f.x);
+      f.a += Math.sin(want - f.a) * 2 * dt;
+    }
+    let sp = f.s;
+    if (netIn && !landed) {
+      const d = Math.hypot(f.x - m.cx, f.z - m.cz);
+      if (d < m.r + 1.2) { f.scared += dt; if (f.scared > 0.35) { f.a = Math.atan2(f.z - m.cz, f.x - m.cx); sp = 1.1; } }
+    } else f.scared = 0;
+    const nx = f.x + Math.cos(f.a) * sp * dt, nz = f.z + Math.sin(f.a) * sp * dt;
+    if (landed && state !== 'hauling' && state !== 'done' && inPoly(f.x, f.z, px, pz) && !inPoly(nx, nz, px, pz)) {
+      f.a += Math.PI * (0.7 + Math.random() * 0.6);
+    } else { f.x = nx; f.z = nz; }
+    f.y += Math.sin(simTime * 0.8 + f.ph) * 0.12 * dt;
+    f.y = Math.max(floorY + 0.15, Math.min(-0.25, f.y));
+  }
+}
+
+// ---------- camera ----------
+const cam = { yaw: -1.05, pitch: 0.32, dist: 17, tx: 0, ty: -0.6, tz: 6.5 };
+const views = { side: [-1.4, 0.18, 17], back: [-0.25, 0.42, 14], top: [-0.6, 1.25, 20] };
+let C = [0,0,0], R = [1,0,0], U = [0,1,0], F = [0,0,1], focal = 800;
+function setupCam(){
+  const cp = Math.cos(cam.pitch);
+  C = [cam.tx + cam.dist * cp * Math.sin(cam.yaw), cam.ty + cam.dist * Math.sin(cam.pitch), cam.tz - cam.dist * cp * Math.cos(cam.yaw)];
+  F = norm([cam.tx - C[0], cam.ty - C[1], cam.tz - C[2]]);
+  R = norm(cross(F, [0,1,0])); U = cross(R, F);
+  focal = Math.min(W, H) * 1.1;
+  cxOff = (W > 760 && detailsEl.open) ? (panelEl.offsetWidth + 16) / 2 : 0;
+}
+function norm(v){ const l = Math.hypot(v[0], v[1], v[2]); return [v[0]/l, v[1]/l, v[2]/l]; }
+function cross(a, b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function toCam(x, y, z){
+  const dx = x-C[0], dy = y-C[1], dz = z-C[2];
+  return [dx*R[0]+dy*R[1]+dz*R[2], dx*U[0]+dy*U[1]+dz*U[2], dx*F[0]+dy*F[1]+dz*F[2]];
+}
+const NEAR = 0.2;
+// shift the view centre right of the control panel on wide screens
+const panelEl = document.getElementById('panel'), detailsEl = panelEl.querySelector('details');
+let cxOff = 0;
+const scr = c => [W/2 + cxOff + c[0] * focal / c[2], H/2 - c[1] * focal / c[2]];
+function segCam(a, b){
+  if (a[2] < NEAR && b[2] < NEAR) return;
+  if (a[2] < NEAR) { const t = (NEAR-a[2]) / (b[2]-a[2]); a = [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, NEAR]; }
+  else if (b[2] < NEAR) { const t = (NEAR-b[2]) / (a[2]-b[2]); b = [b[0]+(a[0]-b[0])*t, b[1]+(a[1]-b[1])*t, NEAR]; }
+  const p = scr(a), q = scr(b); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+}
+function polyWorld(pts, fill){
+  let cp = pts.map(p => toCam(p[0], p[1], p[2])), out = [];
+  for (let i = 0; i < cp.length; i++) {
+    const a = cp[i], b = cp[(i+1) % cp.length], ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+    if (ain) out.push(a);
+    if (ain !== bin) { const t = (NEAR-a[2]) / (b[2]-a[2]); out.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, NEAR]); }
+  }
+  if (out.length < 3) return;
+  ctx.beginPath(); out.forEach((c, i) => { const s = scr(c); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+
+// ---------- drawing ----------
+function drawNetPass(under){
+  ctx.beginPath();
+  for (let c = 0; c < NC; c++) {
+    const a = ca[c], b = cb[c];
+    if (((pos[3*a+1] + pos[3*b+1]) < 0) !== under) continue;
+    segCam([camP[3*a], camP[3*a+1], camP[3*a+2]], [camP[3*b], camP[3*b+1], camP[3*b+2]]);
+  }
+  ctx.strokeStyle = under ? 'rgba(235,228,205,.75)' : 'rgba(245,238,215,.9)';
+  ctx.lineWidth = 1; ctx.stroke();
+  for (const i of sinkers) {
+    if ((pos[3*i+1] < 0) !== under || camP[3*i+2] < NEAR) continue;
+    const s = scr([camP[3*i], camP[3*i+1], camP[3*i+2]]), r = Math.max(1.4, focal / camP[3*i+2] * 0.035);
+    ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.283); ctx.fillStyle = '#3d4248'; ctx.fill();
+  }
+}
+function drawFish(under){
+  ctx.lineCap = 'round';
+  for (const f of fish) {
+    if ((f.y < 0) !== under) continue;
+    const L = 0.13, cx = Math.cos(f.a) * L, cz = Math.sin(f.a) * L;
+    const a = toCam(f.x + cx, f.y, f.z + cz), b = toCam(f.x - cx, f.y, f.z - cz);
+    if (a[2] < NEAR || b[2] < NEAR) continue;
+    const p = scr(a), q = scr(b);
+    ctx.lineWidth = Math.max(1.5, focal / a[2] * 0.075);
+    ctx.strokeStyle = f.caught ? '#ffc93c' : (f.silver ? '#c7d2dc' : '#d79a4a');
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+function line3(pts, color, w){
+  ctx.beginPath();
+  for (let i = 0; i < pts.length - 1; i++) segCam(toCam(...pts[i]), toCam(...pts[i+1]));
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke();
+}
+function drawBoatAndThrower(){
+  const rim = [], hull = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20 * Math.PI * 2, x = Math.cos(t) * 0.75, z = 0.2 + Math.sin(t) * 2.1 * (Math.sin(t) > 0 ? 1 : 0.8);
+    rim.push([x, 0.45, z]); hull.push([x * 0.7, 0.02, z * 0.85]);
+  }
+  polyWorld(hull, '#5b3f28');
+  polyWorld(rim, '#8a5f3a');
+  for (let i = 0; i < 20; i += 2) line3([hull[i], rim[i]], 'rgba(60,40,25,.8)', 1);
+  const hx = HAND0[0] - 0.05, base = 0.45;
+  const sh = [hx, 1.5, 0.35], hip = [hx, 1.0, 0.25];
+  line3([[hx - 0.15, base, 0.15], hip, [hx + 0.15, base, 0.35]], '#24323f', 3);
+  line3([hip, sh], '#2f5d7c', 4);
+  line3([sh, [hand[0], (sh[1] + hand[1]) / 2 - 0.05, (sh[2] + hand[2]) / 2], hand], '#d6a77a', 2.5);
+  const hd = toCam(hx, 1.72, 0.35);
+  if (hd[2] > NEAR) { const s = scr(hd); ctx.beginPath(); ctx.arc(s[0], s[1], Math.max(2, focal / hd[2] * 0.12), 0, 6.283); ctx.fillStyle = '#d6a77a'; ctx.fill(); }
+  // hand line with sag
+  const d = Math.hypot(pos[0]-hand[0], pos[1]-hand[1], pos[2]-hand[2]);
+  const sag = Math.min(1.8, Math.max(0, lineLen - d) * 0.35), pts = [];
+  for (let i = 0; i <= 14; i++) {
+    const t = i / 14;
+    pts.push([hand[0] + (pos[0]-hand[0])*t, hand[1] + (pos[1]-hand[1])*t - sag * 4 * t * (1-t), hand[2] + (pos[2]-hand[2])*t]);
+  }
+  line3(pts, 'rgba(250,250,240,.9)', 1.2);
+}
+
+function render(){
+  setupCam();
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#7fb9de'); sky.addColorStop(1, '#d9eef8');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < N; i++) { const c = toCam(pos[3*i], pos[3*i+1], pos[3*i+2]); camP[3*i] = c[0]; camP[3*i+1] = c[1]; camP[3*i+2] = c[2]; }
+
+  // sea floor
+  polyWorld([[-30, floorY, -12], [30, floorY, -12], [30, floorY, 45], [-30, floorY, 45]], '#c4ad80');
+  ctx.beginPath();
+  for (let x = -30; x <= 30; x += 2) segCam(toCam(x, floorY, -12), toCam(x, floorY, 45));
+  for (let z = -12; z <= 45; z += 2) segCam(toCam(-30, floorY, z), toCam(30, floorY, z));
+  ctx.strokeStyle = 'rgba(90,70,40,.18)'; ctx.lineWidth = 1; ctx.stroke();
+
+  drawFish(true);
+  drawNetPass(true);
+  // water surface
+  polyWorld([[-30, 0, -12], [30, 0, -12], [30, 0, 45], [-30, 0, 45]], 'rgba(28,104,142,.58)');
+  ctx.beginPath();
+  for (let z = -12; z <= 45; z += 3) segCam(toCam(-30, 0, z), toCam(30, 0, z));
+  ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.stroke();
+  // ripples
+  for (const r of ripples) {
+    const rad = 0.15 + r.t * 0.9, al = 0.55 * (1 - r.t / 2.2);
+    ctx.beginPath();
+    for (let k = 0; k <= 20; k++) { const t = k / 20 * 6.283; const c = toCam(r.x + Math.cos(t) * rad, 0, r.z + Math.sin(t) * rad); if (c[2] < NEAR) continue; const s = scr(c); k ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); }
+    ctx.strokeStyle = `rgba(255,255,255,${al})`; ctx.lineWidth = 1; ctx.stroke();
+  }
+  drawBoatAndThrower();
+  drawFish(false);
+  drawNetPass(false);
+}
+
+// ---------- UI ----------
+const $ = id => document.getElementById(id);
+const labels = { ready: '待機', flying: '飛行中', water: '着水・沈降中', settled: '着底（引き上げ可能）', hauling: '引き上げ中', done: '引き上げ完了' };
+function updateUI(){
+  $('state').textContent = labels[state];
+  $('bHaul').disabled = !(state === 'water' || state === 'settled');
+  $('bThrow').textContent = state === 'ready' ? '投げる' : 'もう一度投げる';
+  $('sFlight').textContent = state === 'ready' ? '—' : flightT.toFixed(2) + ' 秒';
+  $('sDiam').textContent = maxD ? `${maxD.toFixed(2)} m（開き率 ${Math.round(maxD / (2 * RN) * 100)}%）` : '—';
+  $('sLand').textContent = landD ? landD.toFixed(2) + ' m' : '—';
+  $('sCatch').textContent = state === 'hauling' || state === 'done' ? `${caughtCount} 匹` : '—';
+}
+$('bThrow').onclick = throwNet; $('bHaul').onclick = haul; $('bReset').onclick = reset;
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { const v = views[b.dataset.v]; cam.yaw = v[0]; cam.pitch = v[1]; cam.dist = v[2]; });
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); throwNet(); }
+  else if (e.key === 'h' || e.key === 'H') haul();
+  else if (e.key === 'r' || e.key === 'R') reset();
+});
+let drag = null;
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  cam.yaw -= (e.clientX - drag.x) * 0.006;
+  cam.pitch = Math.max(0.06, Math.min(1.45, cam.pitch + (e.clientY - drag.y) * 0.005));
+  drag = { x: e.clientX, y: e.clientY };
+});
+cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('pointercancel', () => drag = null);
+cv.addEventListener('wheel', e => { e.preventDefault(); cam.dist = Math.max(5, Math.min(40, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+// ---------- main loop ----------
+let last = performance.now(), acc = 0, uiTick = 0;
+function frame(now){
+  const realDt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = realDt * (slowEl.checked ? 0.25 : 1);
+  simTime += dt;
+  if (state !== 'ready') {
+    acc += dt;
+    while (acc >= H_STEP) { step(H_STEP); acc -= H_STEP; }
+  }
+  const m = netMetrics();
+  if (state === 'flying') {
+    flightT += dt;
+    maxD = Math.max(maxD, 2 * m.r);
+    if (m.under > 0.3) { state = 'water'; updateUI(); }
+  } else if (state === 'water') {
+    waterT += dt;
+    if (m.onFloor > 0.7 || waterT > 6) { state = 'settled'; landD = 2 * m.r; updateUI(); }
+  } else if (state === 'hauling') {
+    haulT += dt;
+    lineLen = Math.max(0.4, lineLen - 1.7 * dt);
+    purseRest = Math.max(0.15, purseRest - 1.3 * dt);
+    const hp = Math.min(1, haulT / 3);
+    hand = [HAND0[0], HAND0[1] + 0.75 * hp, HAND0[2] - 0.2 * hp];
+    if (lineLen <= 0.4 && purseRest <= 0.15 && haulT > 3) { state = 'done'; updateUI(); }
+  }
+  landed = (state === 'water' || state === 'settled') && m.onFloor > 0.6;
+  updateFish(dt, m);
+  for (const r of ripples) r.t += dt;
+  ripples = ripples.filter(r => r.t < 2.2);
+  render();
+  if ((uiTick += realDt) > 0.1) { uiTick = 0; updateUI(); }
+  requestAnimationFrame(frame);
+}
+if (innerWidth < 760) detailsEl.open = false;
+reset();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
