@@ -107,6 +107,55 @@
                 android:text="@string/add" />
         </LinearLayout>
 
+        <TextView style="@style/SectionLabel" android:text="@string/transit_label" />
+        <TextView style="@style/Hint" android:text="@string/transit_hint" />
+        <TextView style="@style/FieldLabel" android:text="@string/home_label" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <EditText
+                android:id="@+id/editHome"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="@string/home_hint"
+                android:importantForAutofill="no"
+                android:inputType="text" />
+            <Button
+                android:id="@+id/btnSaveHome"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/save" />
+        </LinearLayout>
+        <TextView android:id="@+id/homeStatus" style="@style/Hint" />
+        <TextView style="@style/FieldLabel" android:text="@string/apikey_label" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <EditText
+                android:id="@+id/editApiKey"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:hint="@string/apikey_hint"
+                android:importantForAutofill="no"
+                android:inputType="textPassword" />
+            <Button
+                android:id="@+id/btnSaveApiKey"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/save" />
+        </LinearLayout>
+        <Button
+            android:id="@+id/btnGetApiKey"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/apikey_get" />
+        <TextView android:id="@+id/transitStatus" style="@style/Hint" />
+
         <TextView style="@style/SectionLabel" android:text="@string/timetable_label" />
         <CheckBox android:id="@+id/checkTimetable" style="@style/Field" android:text="@string/timetable_enabled" />
         <CheckBox android:id="@+id/checkHolidays" style="@style/Field" android:text="@string/timetable_holidays" />

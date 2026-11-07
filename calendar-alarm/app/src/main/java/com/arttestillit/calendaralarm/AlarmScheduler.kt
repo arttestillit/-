@@ -72,7 +72,10 @@ object AlarmScheduler {
         val startOfToday = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
         val horizon = now + LOOKAHEAD_MS
         val events = repo.events(startOfToday, horizon + 24 * 60 * 60 * 1000L)
-        val outings = AlarmPlanner.outings(events, settings, now, zone, horizon)
+        val firstPass = AlarmPlanner.outings(events, settings, now, zone, horizon)
+        // 登録場所に一致しない予定は、公共交通機関の所要時間で出発時刻を出し直す
+        val transit = TransitResolver(ctx).resolve(firstPass, prefs, now)
+        val outings = if (transit.isEmpty()) firstPass else AlarmPlanner.outings(events, settings, now, zone, horizon, transit)
         val plan = AlarmPlanner.plan(outings, settings.enabled)
 
         val wanted = plan.map { it.id }.toSet()

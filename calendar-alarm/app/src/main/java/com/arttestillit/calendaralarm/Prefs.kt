@@ -51,6 +51,27 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_TIMETABLE, null)?.let(::decodeTimetable) ?: DEFAULT_TIMETABLE
         set(v) = sp.edit().putString(KEY_TIMETABLE, encodeTimetable(v)).apply()
 
+    /** 家の位置（経路検索の出発地）。 */
+    var home: LatLon?
+        get() = if (sp.contains(KEY_HOME_LAT)) {
+            LatLon(sp.getFloat(KEY_HOME_LAT, 0f).toDouble(), sp.getFloat(KEY_HOME_LON, 0f).toDouble())
+        } else {
+            null
+        }
+        set(v) = sp.edit().apply {
+            if (v == null) remove(KEY_HOME_LAT).remove(KEY_HOME_LON)
+            else putFloat(KEY_HOME_LAT, v.lat.toFloat()).putFloat(KEY_HOME_LON, v.lon.toFloat())
+        }.apply()
+
+    var homeLabel: String
+        get() = sp.getString(KEY_HOME_LABEL, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_HOME_LABEL, v).apply()
+
+    /** NAVITIME（RapidAPI）の APIキー。 */
+    var rapidApiKey: String
+        get() = sp.getString(KEY_RAPIDAPI, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_RAPIDAPI, v.trim()).apply()
+
     var excludedCalendarIds: Set<Long>
         get() = strings(KEY_EXCLUDED_CALENDARS).mapNotNull(String::toLongOrNull).toSet()
         set(v) = sp.edit().putStringSet(KEY_EXCLUDED_CALENDARS, v.map(Long::toString).toSet()).apply()
@@ -105,6 +126,10 @@ class Prefs(context: Context) {
         private const val KEY_EXCLUDED_CALENDARS = "excluded_calendars"
         private const val KEY_SKIPPED = "skipped_events"
         private const val KEY_SCHEDULED = "scheduled_ids"
+        private const val KEY_HOME_LAT = "home_lat"
+        private const val KEY_HOME_LON = "home_lon"
+        private const val KEY_HOME_LABEL = "home_label"
+        private const val KEY_RAPIDAPI = "rapidapi_key"
 
         // 初回起動時の値。後から画面で編集できる。
         val DEFAULT_PLACES = listOf(Place("ファミマ", 10), Place("大学", 60))

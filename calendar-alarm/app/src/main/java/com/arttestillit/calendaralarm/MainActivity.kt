@@ -62,6 +62,7 @@ class MainActivity : Activity() {
         setupSettings()
         setupPlaces()
         setupTimetable()
+        setupTransit()
 
         findViewById<Button>(R.id.btnSync).setOnClickListener {
             refresh()
@@ -161,6 +162,61 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---- 公共交通機関 ----
+
+    private fun setupTransit() {
+        val editHome = findViewById<EditText>(R.id.editHome)
+        val editKey = findViewById<EditText>(R.id.editApiKey)
+        editHome.setText(prefs.homeLabel)
+        editKey.setText(prefs.rapidApiKey)
+        findViewById<Button>(R.id.btnSaveHome).setOnClickListener {
+            val text = editHome.text.toString().trim()
+            if (text.isEmpty()) {
+                prefs.home = null; prefs.homeLabel = ""
+                renderTransitStatus(); refresh()
+                return@setOnClickListener
+            }
+            Toast.makeText(this, "場所を調べています…", Toast.LENGTH_SHORT).show()
+            worker.execute {
+                val resolver = TransitResolver(this)
+                val pos = resolver.geocode(text)
+                val address = pos?.let { resolver.describe(text) }
+                runOnUiThread {
+                    if (pos == null) {
+                        Toast.makeText(this, "場所が見つかりませんでした。住所を詳しく入れてみてください", Toast.LENGTH_LONG).show()
+                    } else {
+                        prefs.home = pos
+                        prefs.homeLabel = text
+                        findViewById<TextView>(R.id.homeStatus).text = "→ ${address ?: pos.key}"
+                        refresh()
+                    }
+                    renderTransitStatus()
+                }
+            }
+        }
+        findViewById<Button>(R.id.btnSaveApiKey).setOnClickListener {
+            prefs.rapidApiKey = editKey.text.toString()
+            Toast.makeText(this, "APIキーを保存しました", Toast.LENGTH_SHORT).show()
+            renderTransitStatus(); refresh()
+        }
+        findViewById<Button>(R.id.btnGetApiKey).setOnClickListener {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TransitResolver.SIGNUP_URL)))
+        }
+        renderTransitStatus()
+    }
+
+    private fun renderTransitStatus() {
+        val home = findViewById<TextView>(R.id.homeStatus)
+        if (prefs.home == null) home.text = "家が未設定です"
+        else if (home.text.isNullOrBlank() || home.text == "家が未設定です") home.text = "→ 設定済み（${prefs.home?.key}）"
+        val used = TransitResolver(this).usedThisMonth()
+        findViewById<TextView>(R.id.transitStatus).text = when {
+            prefs.home == null || prefs.rapidApiKey.isBlank() ->
+                "家とAPIキーを設定すると、登録していない場所は電車の所要時間で計算します。"
+            else -> "経路検索：今月 $used / ${TransitResolver.MONTHLY_LIMIT} 回（同じ予定は保存した結果を使います）"
+        }
+    }
+
     // ---- 時間割 ----
 
     private fun setupTimetable() {
@@ -205,7 +261,12 @@ class MainActivity : Activity() {
         worker.execute {
             val result = AlarmScheduler.sync(this)
             val calendars = repo.calendars()
-            runOnUiThread { if (!isFinishing) render(result, calendars) }
+            runOnUiThread {
+                if (!isFinishing) {
+                    render(result, calendars)
+                    renderTransitStatus()
+                }
+            }
         }
     }
 
@@ -250,7 +311,11 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, dp(6))
         }
         val tag = if (o.fromTimetable) "［時間割］" else ""
-        val via = o.place?.let { "${it.keyword}・移動${o.travelMinutes}分" } ?: "移動${o.travelMinutes}分"
+        val via = when (o.source) {
+            TravelSource.PLACE -> "${o.place?.keyword}・移動${o.travelMinutes}分"
+            TravelSource.TRANSIT -> "電車など${o.travelMinutes}分・NAVITIME"
+            TravelSource.DEFAULT -> "移動${o.travelMinutes}分（仮）"
+        }
         val alarms = when {
             o.muted == MuteReason.NOT_FIRST_OF_DAY -> "この日は先に出かけているので鳴らしません"
             o.muted == MuteReason.SKIPPED -> "鳴らしません"
@@ -270,10 +335,15 @@ class MainActivity : Activity() {
                 refresh()
             }
         })
-        if (o.place == null && o.active) {
+        if (o.source == TravelSource.DEFAULT && o.active) {
+            val location = e.location?.takeIf(String::isNotBlank)
             box.addView(TextView(this).apply {
-                text = "⚠ 場所が未登録です。「場所と移動時間」に登録すると正確になります" +
-                    (e.location?.takeIf(String::isNotBlank)?.let { "（場所：$it）" } ?: "（予定に場所が入っていません）")
+                text = when {
+                    location == null -> "⚠ 予定に場所が入っていません。カレンダーの予定に場所を入れるか、「場所と移動時間」に登録してください"
+                    prefs.home == null || prefs.rapidApiKey.isBlank() ->
+                        "⚠ 家とAPIキーを設定すると「$location」までの電車の時間で計算します"
+                    else -> "⚠ 「$location」までの経路が見つかりませんでした。「場所と移動時間」に登録してください"
+                }
                 setTextColor(getColor(R.color.warning))
                 textSize = 12f
                 setPadding(dp(32), 0, 0, 0)

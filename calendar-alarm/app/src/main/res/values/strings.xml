@@ -15,6 +15,13 @@
     <string name="places_hint">予定のタイトルか場所にこの言葉が入っていれば、その移動時間で出発時刻を計算します。</string>
     <string name="place_keyword_hint">例：ファミマ</string>
     <string name="minutes_hint">分</string>
+    <string name="transit_label">公共交通機関（登録していない場所）</string>
+    <string name="transit_hint">予定の「場所」に住所や駅名・店名が入っていれば、家からの電車の経路を調べて、集合時刻の前に着く電車に乗れる時刻を出発時刻にします（NAVITIME、徒歩を含む。バスは対象外）。</string>
+    <string name="home_label">家の住所または最寄り駅</string>
+    <string name="home_hint">例：〇〇市〇〇町1-2-3</string>
+    <string name="apikey_label">NAVITIME の APIキー（RapidAPI・無料で月500回）</string>
+    <string name="apikey_hint">X-RapidAPI-Key</string>
+    <string name="apikey_get">APIキーを取得する（RapidAPI のページを開く）</string>
     <string name="timetable_label">時間割（カレンダーにない授業）</string>
     <string name="timetable_enabled">時間割の授業にもアラームを鳴らす</string>
     <string name="timetable_holidays">祝日は時間割を休みにする（祝日カレンダーを参照）</string>

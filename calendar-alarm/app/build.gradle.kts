@@ -32,4 +32,6 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     testImplementation("junit:junit:4.13.2")
+    // Android の org.json は単体テストではスタブなので本物を使う
+    testImplementation("org.json:json:20240303")
 }

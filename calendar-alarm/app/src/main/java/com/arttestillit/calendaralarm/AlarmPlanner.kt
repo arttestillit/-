@@ -53,13 +53,20 @@ data class AlarmSettings(
 
 enum class MuteReason { SKIPPED, NOT_FIRST_OF_DAY }
 
+/** 移動時間をどこから決めたか。 */
+enum class TravelSource { PLACE, TRANSIT, DEFAULT }
+
+/** 公共交通機関の経路検索結果。departure は家を出る時刻。 */
+data class TransitRoute(val departure: Long, val minutes: Int)
+
 data class AlarmTime(val offsetMinutes: Int, val at: Long)
 
 /** 予定1件分の「家を出る」計算結果。 */
 data class Outing(
     val event: CalendarEvent,
-    /** 一致した登録場所。null なら未登録（既定の移動時間で計算）。 */
+    /** 一致した登録場所。null なら未登録。 */
     val place: Place?,
+    val source: TravelSource,
     val travelMinutes: Int,
     val departure: Long,
     /** これから鳴る時刻（過ぎたものは含まない）。 */
@@ -120,6 +127,8 @@ object AlarmPlanner {
         now: Long,
         zone: ZoneId,
         horizon: Long,
+        /** 予定キー → 経路検索結果。登録場所に一致しない予定にだけ使う。 */
+        transit: Map<String, TransitRoute> = emptyMap(),
     ): List<Outing> {
         val today = localDate(now, zone)
         val holidays = events.filter { it.holiday }
@@ -141,10 +150,16 @@ object AlarmPlanner {
             .distinctBy { it.key }
             .map { e ->
                 val place = matchPlace(e, settings.places)
-                val travel = place?.travelMinutes ?: settings.defaultTravelMinutes
-                val departure = e.begin - (settings.arriveEarlyMinutes + travel) * MIN
+                val route = if (place == null) transit[e.key] else null
+                val source = when {
+                    place != null -> TravelSource.PLACE
+                    route != null -> TravelSource.TRANSIT
+                    else -> TravelSource.DEFAULT
+                }
+                val travel = place?.travelMinutes ?: route?.minutes ?: settings.defaultTravelMinutes
+                val departure = route?.departure ?: (e.begin - (settings.arriveEarlyMinutes + travel) * MIN)
                 Outing(
-                    event = e, place = place, travelMinutes = travel, departure = departure,
+                    event = e, place = place, source = source, travelMinutes = travel, departure = departure,
                     alarms = offsets.map { AlarmTime(it, departure - it * MIN) }.sortedBy { it.at },
                     muted = if (e.key in settings.skippedEventKeys) MuteReason.SKIPPED else null,
                 )
