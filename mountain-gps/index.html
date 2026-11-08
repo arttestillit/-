@@ -27,6 +27,7 @@
 <nav id="toolbar">
   <button id="btnRec" class="primary">● 記録開始</button>
   <button data-panel="panelDownload">地図DL</button>
+  <button data-panel="panelRoutes">ルート</button>
   <button data-panel="panelTracks">軌跡</button>
   <button data-panel="panelSettings">設定</button>
 </nav>
@@ -71,13 +72,56 @@
   <label class="file">GPXを読み込む <input id="gpxImport" type="file" accept=".gpx,application/gpx+xml"></label>
 </section>
 
+<!-- ルート -->
+<section id="panelRoutes" class="panel" hidden>
+  <header><h2>ルート</h2><button class="close">×</button></header>
+  <p class="hint">登る予定のルートを地図に太線で表示します。表示できるのは1本です。</p>
+  <ul id="routeList" class="list"></ul>
+  <div class="btns">
+    <button id="btnNewRoute" class="primary">＋ 新しいルートを作成</button>
+  </div>
+  <label class="file">GPXからルートを読み込む <input id="routeImport" type="file" accept=".gpx,application/gpx+xml"></label>
+</section>
+
+<!-- ルート編集バー -->
+<div id="editBar" hidden>
+  <div class="edit-modes">
+    <button id="modeLine" class="mode active">〰 線を引く</button>
+    <button id="modeCp" class="mode">📍 ポイント</button>
+  </div>
+  <p id="editHint" class="small"></p>
+  <p id="editInfo" class="edit-info"></p>
+  <div class="edit-actions">
+    <button id="editUndo">↶ 戻す</button>
+    <button id="editCancel">やめる</button>
+    <button id="editSave" class="primary">保存</button>
+  </div>
+</div>
+
+<!-- チェックポイント入力 -->
+<div id="cpDialog" class="dialog-back" hidden>
+  <div class="dialog">
+    <h3 id="cpTitle">チェックポイント</h3>
+    <div id="cpTypes" class="cp-types"></div>
+    <label>名前（任意） <input id="cpName" type="text" placeholder="例：高川山 山頂"></label>
+    <div class="btns">
+      <button id="cpDelete" class="danger" hidden>削除</button>
+      <span style="flex:1"></span>
+      <button id="cpCancel">キャンセル</button>
+      <button id="cpOk" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- 設定 -->
 <section id="panelSettings" class="panel" hidden>
   <header><h2>設定</h2><button class="close">×</button></header>
   <label>記録間隔
     <select id="setInterval">
+      <option value="15">15秒</option>
+      <option value="30" selected>30秒</option>
       <option value="60">1分</option>
-      <option value="180" selected>3分</option>
+      <option value="180">3分</option>
       <option value="300">5分</option>
       <option value="600">10分</option>
     </select>
@@ -86,7 +130,7 @@
   <label class="check"><input id="setFollow" type="checkbox" checked> 現在地に地図を追従</label>
   <p class="hint">
     ※ ブラウザの仕様上、画面を消したりアプリを切り替えるとGPS取得が止まることがあります。
-    復帰時にすぐ1点記録します。確実に3分ごとに記録したい場合は「画面をスリープさせない」をONにし、
+    復帰時にすぐ1点記録します。確実に一定間隔で記録したい場合は「画面をスリープさせない」をONにし、
     画面の明るさを最小にしてお使いください。
   </p>
   <p class="small" id="appVersion"></p>
@@ -96,5 +140,6 @@
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
+<script src="routes.js"></script>
 </body>
 </html>

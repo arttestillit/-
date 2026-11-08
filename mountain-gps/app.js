@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
@@ -51,11 +51,18 @@ const store = {
   },
 };
 
+const SETTINGS_REV = 2;
+const storedSettings = store.get('mgps.settings', null);
 const settings = Object.assign(
-  { interval: 180, wake: true, follow: true, layer: 'gsi_std' },
-  store.get('mgps.settings', {}),
+  { interval: 30, wake: true, follow: true, layer: 'gsi_std' },
+  storedSettings || {},
 );
 const saveSettings = () => store.set('mgps.settings', settings);
+if (storedSettings && (storedSettings.rev || 1) < 2 && settings.interval === 180) {
+  settings.interval = 30;                // v1 の既定（3分）から 30秒 へ移行
+}
+settings.rev = SETTINGS_REV;
+saveSettings();
 
 /* ---------- ユーティリティ ---------- */
 const $ = (id) => document.getElementById(id);
@@ -76,6 +83,7 @@ function fmtDur(ms) {
   const m = Math.floor(ms / 60000);
   return m >= 60 ? `${Math.floor(m / 60)}時間${pad2(m % 60)}分` : `${m}分`;
 }
+function fmtInterval(sec) { return sec < 60 ? `${sec}秒` : `${sec / 60}分`; }
 function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m'; }
 function haversine(a, b) {
   const R = 6371000, rad = Math.PI / 180;
@@ -100,6 +108,13 @@ function trackStats(points) {
 /* ---------- 地図 ---------- */
 const lastView = store.get('mgps.view', { lat: 35.3606, lon: 138.7274, z: 12 }); // 既定: 富士山
 const map = L.map('map', { zoomControl: false, maxZoom: 18 }).setView([lastView.lat, lastView.lon], lastView.z);
+// 記録点は数が多いので Canvas で描画（tolerance を広げてタップしやすく）
+const pointRenderer = L.canvas({ padding: 0.5, tolerance: 10 });
+// 縮小表示では時刻ラベルを隠して画面をすっきりさせる
+const LABEL_MIN_ZOOM = 13;
+function updateLabelVisibility() { map.getContainer().classList.toggle('hide-labels', map.getZoom() < LABEL_MIN_ZOOM); }
+map.on('zoomend', updateLabelVisibility);
+updateLabelVisibility();
 L.control.zoom({ position: 'topright' }).addTo(map);
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
@@ -390,22 +405,42 @@ const currentTrack = () => (recId ? tracks.find((t) => t.id === recId) : null);
   if (tr && tr.points.length) lastLogAt = tr.points[tr.points.length - 1].t;
 }
 
+// 描画順: ルート（下）→ 過去の軌跡 → 記録中の軌跡（上）
+map.createPane('routePane').style.zIndex = 390;
 const recLine = L.polyline([], { color: '#d32f2f', weight: 4, opacity: 0.85 }).addTo(map);
 const recPoints = L.layerGroup().addTo(map);
 const viewLayer = L.layerGroup().addTo(map);   // 過去の軌跡表示用
+const MAJOR_EVERY_MS = 10 * 60 * 1000;         // 10分ごとに大きな点＋時刻
 
-function pointMarker(p, i) {
-  return L.marker([p.lat, p.lon], {
-    icon: L.divIcon({ className: '', html: '<div class="pt-marker"></div>', iconSize: [10, 10], iconAnchor: [5, 5] }),
-  }).bindPopup(`#${i + 1} ${fmtTime(p.t)}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` +
-    (p.alt != null ? `<br>標高 ${Math.round(p.alt)} m` : '') + `<br>精度 ±${Math.round(p.acc)} m`);
+function pointPopup(p, i) {
+  return `<div class="pp-time">${fmtTime(p.t)}</div>#${i + 1} ・ ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` +
+    (p.alt != null ? `<br>標高 ${Math.round(p.alt)} m` : '') + (p.acc ? `<br>精度 ±${Math.round(p.acc)} m` : '');
+}
+// 10分の区切り（時計の 10:00, 10:10 …）をまたいだ最初の点と、始点を「大きな点」にする
+function isMajor(points, i) {
+  return i === 0 || Math.floor(points[i].t / MAJOR_EVERY_MS) !== Math.floor(points[i - 1].t / MAJOR_EVERY_MS);
+}
+function drawTrackPoints(points, group, color) {
+  points.forEach((p, i) => {
+    if (isMajor(points, i)) {
+      L.marker([p.lat, p.lon], {
+        icon: L.divIcon({ className: '', html: `<div class="pt-major" style="--c:${color}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] }),
+        zIndexOffset: 500,
+      }).bindTooltip(fmtTime(p.t), { permanent: true, direction: 'right', offset: [10, 0], className: 'time-label' })
+        .bindPopup(pointPopup(p, i)).addTo(group);
+    } else {
+      L.circleMarker([p.lat, p.lon], {
+        renderer: pointRenderer, radius: 5, color, weight: 2, fillColor: '#fff', fillOpacity: 1,
+      }).bindPopup(pointPopup(p, i)).addTo(group);
+    }
+  });
 }
 function drawRecording() {
   const tr = currentTrack();
   recPoints.clearLayers();
   if (!tr) { recLine.setLatLngs([]); return; }
   recLine.setLatLngs(tr.points.map((p) => [p.lat, p.lon]));
-  tr.points.forEach((p, i) => pointMarker(p, i).addTo(recPoints));
+  drawTrackPoints(tr.points, recPoints, '#d32f2f');
 }
 
 function logPoint(fix) {
@@ -485,7 +520,7 @@ $('btnRec').addEventListener('click', () => {
     lastLogAt = 0;
     viewLayer.clearLayers();
     maybeLog(true);   // 始点をすぐ記録
-    toast(`記録を開始しました（${settings.interval / 60}分ごと）`);
+    toast(`記録を開始しました（${fmtInterval(settings.interval)}ごと）`);
   }
   updateRecButton(); updateWakeLock(); renderHud(); renderTracks();
 });
@@ -496,9 +531,8 @@ function showTrack(tr) {
   if (!tr.points.length) return;
   const lls = tr.points.map((p) => [p.lat, p.lon]);
   L.polyline(lls, { color: '#7b1fa2', weight: 4, opacity: 0.85 }).addTo(viewLayer);
-  tr.points.forEach((p, i) => pointMarker(p, i).addTo(viewLayer));
-  L.circleMarker(lls[0], { radius: 7, color: '#fff', fillColor: '#2e7d32', fillOpacity: 1, weight: 2 }).bindTooltip('開始').addTo(viewLayer);
-  if (lls.length > 1) L.circleMarker(lls[lls.length - 1], { radius: 7, color: '#fff', fillColor: '#c62828', fillOpacity: 1, weight: 2 }).bindTooltip('終了').addTo(viewLayer);
+  drawTrackPoints(tr.points, viewLayer, '#7b1fa2');
+  if (lls.length > 1) L.circleMarker(lls[lls.length - 1], { radius: 8, color: '#fff', fillColor: '#c62828', fillOpacity: 1, weight: 3 }).bindPopup(`終了 ${fmtTime(tr.points[tr.points.length - 1].t)}`).addTo(viewLayer);
   setFollow(false);
   map.fitBounds(L.latLngBounds(lls).pad(0.2), { maxZoom: 16 });
 }
@@ -592,6 +626,7 @@ document.querySelectorAll('[data-panel]').forEach((b) => b.addEventListener('cli
   if (!p.hidden) {
     if (p.id === 'panelDownload') { dlLayerSel.value = settings.layer; updateEstimate(); renderAreas(); }
     if (p.id === 'panelTracks') renderTracks();
+    if (p.id === 'panelRoutes') renderRoutes();
   }
 }));
 document.querySelectorAll('.panel .close').forEach((b) => b.addEventListener('click', closePanels));

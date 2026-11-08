@@ -1,10 +1,10 @@
 'use strict';
 // オフライン山GPS — Service Worker
 // アプリ本体はプリキャッシュ、地図タイルはキャッシュ優先（閲覧したタイルも自動で保存）
-const SHELL_CACHE = 'mgps-shell-v1';
+const SHELL_CACHE = 'mgps-shell-v2';
 const TILE_CACHE = 'mgps-tiles-v1';
 const SHELL = [
-  './', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg',
+  './', 'index.html', 'style.css', 'app.js', 'routes.js', 'manifest.webmanifest', 'icon.svg',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png',
