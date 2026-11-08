@@ -1,7 +1,7 @@
 'use strict';
 // オフライン山GPS — Service Worker
 // アプリ本体はプリキャッシュ、地図タイルはキャッシュ優先（閲覧したタイルも自動で保存）
-const SHELL_CACHE = 'mgps-shell-v2';
+const SHELL_CACHE = 'mgps-shell-v3';
 const TILE_CACHE = 'mgps-tiles-v1';
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'routes.js', 'manifest.webmanifest', 'icon.svg',
@@ -50,14 +50,15 @@ self.addEventListener('fetch', (e) => {
     // アプリ本体：ネット優先（更新を取り込む）→ 圏外ならキャッシュ
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
+      const fallback = async () => (await cache.match(req, { ignoreSearch: true })) ||
+        (await cache.match('index.html')) || null;
       try {
         const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
-        return res;
+        if (res.ok) { cache.put(req, res.clone()); return res; }
+        // 公開サイトが一時的に消えても（404等）、保存済みのアプリで動き続ける
+        return (await fallback()) || res;
       } catch {
-        return (await cache.match(req, { ignoreSearch: true })) ||
-               (await cache.match('index.html')) ||
-               new Response('offline', { status: 503 });
+        return (await fallback()) || new Response('offline', { status: 503 });
       }
     })());
   }
