@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f5130">
+<title>オフライン山GPS</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<!-- 現在地情報 -->
+<div id="hud">
+  <div class="row"><span id="gpsState" class="dot off"></span><span id="coord">GPS待機中…</span></div>
+  <div class="row small"><span id="alt">標高 --</span> ・ <span id="acc">精度 --</span> ・ <span id="fixAge"></span></div>
+  <div class="row small" id="recInfo"></div>
+</div>
+
+<button id="btnCenter" class="fab" title="現在地へ">◎</button>
+
+<!-- 下部ツールバー -->
+<nav id="toolbar">
+  <button id="btnRec" class="primary">● 記録開始</button>
+  <button data-panel="panelDownload">地図DL</button>
+  <button data-panel="panelTracks">軌跡</button>
+  <button data-panel="panelSettings">設定</button>
+</nav>
+
+<!-- 地図ダウンロード -->
+<section id="panelDownload" class="panel" hidden>
+  <header><h2>地図をダウンロード</h2><button class="close">×</button></header>
+  <p class="hint">登山前に電波のある場所で、地図を登る範囲に合わせてから実行してください。画面に表示中の範囲（＋周囲の余白）が保存されます。</p>
+  <label>地図の種類
+    <select id="dlLayer"></select>
+  </label>
+  <div class="grid2">
+    <label>最小ズーム <input id="dlZmin" type="number" min="5" max="18" value="10"></label>
+    <label>最大ズーム <input id="dlZmax" type="number" min="5" max="18" value="16"></label>
+  </div>
+  <label>周囲の余白
+    <select id="dlPad">
+      <option value="0">なし</option>
+      <option value="0.25" selected>25%</option>
+      <option value="0.5">50%</option>
+      <option value="1">100%</option>
+    </select>
+  </label>
+  <label>エリア名 <input id="dlName" type="text" placeholder="例：北岳 2026/11"></label>
+  <p id="dlEstimate" class="estimate"></p>
+  <div class="progress" hidden><div id="dlBar"></div></div>
+  <p id="dlStatus" class="small"></p>
+  <div class="btns">
+    <button id="btnDl" class="primary">ダウンロード開始</button>
+    <button id="btnDlCancel" hidden>中止</button>
+  </div>
+  <h3>保存済みエリア</h3>
+  <ul id="areaList" class="list"></ul>
+  <p id="storageInfo" class="small"></p>
+  <button id="btnClearTiles" class="danger">保存した地図をすべて削除</button>
+</section>
+
+<!-- 軌跡 -->
+<section id="panelTracks" class="panel" hidden>
+  <header><h2>軌跡</h2><button class="close">×</button></header>
+  <ul id="trackList" class="list"></ul>
+  <label class="file">GPXを読み込む <input id="gpxImport" type="file" accept=".gpx,application/gpx+xml"></label>
+</section>
+
+<!-- 設定 -->
+<section id="panelSettings" class="panel" hidden>
+  <header><h2>設定</h2><button class="close">×</button></header>
+  <label>記録間隔
+    <select id="setInterval">
+      <option value="60">1分</option>
+      <option value="180" selected>3分</option>
+      <option value="300">5分</option>
+      <option value="600">10分</option>
+    </select>
+  </label>
+  <label class="check"><input id="setWake" type="checkbox" checked> 記録中は画面をスリープさせない</label>
+  <label class="check"><input id="setFollow" type="checkbox" checked> 現在地に地図を追従</label>
+  <p class="hint">
+    ※ ブラウザの仕様上、画面を消したりアプリを切り替えるとGPS取得が止まることがあります。
+    復帰時にすぐ1点記録します。確実に3分ごとに記録したい場合は「画面をスリープさせない」をONにし、
+    画面の明るさを最小にしてお使いください。
+  </p>
+  <p class="small" id="appVersion"></p>
+</section>
+
+<div id="toast" hidden></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
