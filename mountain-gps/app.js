@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
@@ -674,6 +674,36 @@ ${pts}
 </gpx>
 `;
 }
+/* --- GPX書き出し（始点・終点の周りを隠すオプション付き） --- */
+function hideEnds(points, radius) {
+  if (!radius || points.length < 2) return points;
+  const a = points[0], b = points[points.length - 1];
+  return points.filter((p) => haversine(p, a) > radius && haversine(p, b) > radius);
+}
+let exportTarget = null;
+function updateExportInfo() {
+  const r = parseInt($('exportHide').value, 10);
+  const n = exportTarget.points.length, kept = hideEnds(exportTarget.points, r).length;
+  $('exportInfo').textContent = r ? `${n}点中 ${n - kept}点を除いて保存します` : `${n}点をすべて保存します`;
+}
+function openExport(tr) {
+  exportTarget = tr;
+  $('exportHide').value = String(store.get('mgps.exportHide', 500));
+  updateExportInfo();
+  $('exportDialog').hidden = false;
+}
+$('exportHide').addEventListener('change', updateExportInfo);
+$('exportCancel').addEventListener('click', () => { $('exportDialog').hidden = true; });
+$('exportOk').addEventListener('click', () => {
+  const r = parseInt($('exportHide').value, 10);
+  store.set('mgps.exportHide', r);
+  const tr = exportTarget, pts = hideEnds(tr.points, r);
+  if (!pts.length) { toast('隠す範囲が広すぎて、残る点がありません'); return; }
+  $('exportDialog').hidden = true;
+  const fname = tr.name.replace(/[\\/:*?"<>|\s]+/g, '_') + (r ? '_公開用' : '') + '.gpx';
+  downloadFile(fname, toGpx({ ...tr, points: pts }), 'application/gpx+xml');
+});
+
 function downloadFile(name, text, type) {
   if (NATIVE) { NATIVE.saveAndShare(name, text); return; }
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -698,10 +728,7 @@ function renderTracks() {
         <button data-act="rename">名前変更</button>${rec ? '' : '<button data-act="del">削除</button>'}
       </div>`;
     li.querySelector('[data-act=show]').onclick = () => { closePanels(); rec ? (viewLayer.clearLayers(), tr.points.length && map.fitBounds(L.latLngBounds(tr.points.map((p) => [p.lat, p.lon])).pad(0.2), { maxZoom: 16 })) : showTrack(tr); };
-    li.querySelector('[data-act=gpx]').onclick = () => {
-      const fname = tr.name.replace(/[\\/:*?"<>|\s]+/g, '_') + '.gpx';
-      downloadFile(fname, toGpx(tr), 'application/gpx+xml');
-    };
+    li.querySelector('[data-act=gpx]').onclick = () => openExport(tr);
     li.querySelector('[data-act=rename]').onclick = () => {
       const n = prompt('軌跡の名前', tr.name);
       if (n && n.trim()) { tr.name = n.trim(); saveTrack(tr); renderTracks(); }
@@ -776,6 +803,7 @@ if (NATIVE) {
   NATIVE.onBack(() => {
     if (!$('cpDialog').hidden) { $('cpCancel').click(); return; }
     if (!$('guideDialog').hidden) { $('guideDialog').hidden = true; return; }
+    if (!$('exportDialog').hidden) { $('exportDialog').hidden = true; return; }
     if (typeof editing !== 'undefined' && editing) { $('editCancel').click(); return; }
     if ([...document.querySelectorAll('.panel')].some((p) => !p.hidden)) { closePanels(); return; }
     NATIVE.minimize();   // 終了すると記録が止まるので、ホームに戻るだけにする

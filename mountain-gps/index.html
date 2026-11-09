@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1f5130">
+<!-- 通信先の制限：地図（国土地理院・OSM）と標高API以外へは読み込み・送信できない -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://cyberjapandata.gsi.go.jp https://tile.openstreetmap.org; connect-src 'self' https://cyberjapandata.gsi.go.jp https://cyberjapandata2.gsi.go.jp https://tile.openstreetmap.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>オフライン山GPS</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -149,6 +151,28 @@
   </p>
   <p class="small" id="appVersion"></p>
 </section>
+
+<!-- GPX書き出し -->
+<div id="exportDialog" class="dialog-back" hidden>
+  <div class="dialog">
+    <h3>GPXで保存</h3>
+    <p class="hint">SNSなどに公開する場合は、始点・終点の周りを隠すと、自宅などの場所が分からなくなります。</p>
+    <label>始点・終点の周りを隠す
+      <select id="exportHide">
+        <option value="0">隠さない（自分用の保存）</option>
+        <option value="200">半径 200 m を隠す</option>
+        <option value="500" selected>半径 500 m を隠す（公開用）</option>
+        <option value="1000">半径 1 km を隠す</option>
+      </select>
+    </label>
+    <p id="exportInfo" class="small"></p>
+    <div class="btns">
+      <span style="flex:1"></span>
+      <button id="exportCancel" type="button">キャンセル</button>
+      <button id="exportOk" type="button" class="primary">保存</button>
+    </div>
+  </div>
+</div>
 
 <!-- アプリ版：初回の設定ガイド -->
 <div id="guideDialog" class="dialog-back" hidden>
