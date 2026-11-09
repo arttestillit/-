@@ -61,14 +61,16 @@ function drawRouteInto(group, r) {
       .bindPopup(`<b>${escapeHtml(r.name)}</b><br>ゴール`).addTo(group);
   }
 }
-function drawActiveRoute() {
+function drawActiveRoute(resetNav = true) {
   routeLayer.clearLayers();
+  if (resetNav && typeof navReset === 'function') navReset();
   const r = routes.find((x) => x.id === activeRouteId);
   if (!r || editing) return;
   drawRouteInto(routeLayer, r);
   for (const cp of r.cps) {
     const t = CP_TYPES[cp.type] || CP_TYPES.view;
-    cpMarker(cp).bindPopup(`<b>${escapeHtml(cp.name || t.label)}</b><br>${t.label}` +
+    cpMarker(cp).bindPopup(() => `<b>${escapeHtml(cp.name || t.label)}</b><br>${t.label}` +
+      (cp.ele != null ? `<br>標高 ${Math.round(cp.ele)} m` : '') +
       (latestFix ? `<br>現在地から直線 ${fmtDist(haversine(latestFix, cp))}` : '')).addTo(routeLayer);
   }
 }
@@ -124,7 +126,7 @@ function renderRoutes() {
 function routeToGpx(r) {
   const wpts = r.cps.map((c) =>
     `  <wpt lat="${c.lat.toFixed(7)}" lon="${c.lon.toFixed(7)}"><name>${escapeHtml(c.name || CP_TYPES[c.type].label)}</name>` +
-    `<desc>${CP_TYPES[c.type].label}</desc><type>${c.type}</type></wpt>`).join('\n');
+    (c.ele != null ? `<ele>${c.ele.toFixed(1)}</ele>` : '') + `<desc>${CP_TYPES[c.type].label}</desc><type>${c.type}</type></wpt>`).join('\n');
   const pts = r.points.map((p) => `    <rtept lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"></rtept>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Offline Mountain GPS" xmlns="http://www.topografix.com/GPX/1/1">
@@ -157,6 +159,7 @@ $('routeImport').addEventListener('change', async (e) => {
       .filter((p) => isFinite(p.lat) && isFinite(p.lon));
     const cps = [...doc.getElementsByTagName('wpt')].map((w, i) => ({
       id: Date.now() + i, type: guessCpType(w),
+      ele: (() => { const e = parseFloat((w.getElementsByTagName('ele')[0] || {}).textContent); return isFinite(e) ? e : null; })(),
       name: ((w.getElementsByTagName('name')[0] || {}).textContent || '').trim(),
       lat: parseFloat(w.getAttribute('lat')), lon: parseFloat(w.getAttribute('lon')),
     })).filter((c) => isFinite(c.lat) && isFinite(c.lon));
@@ -250,7 +253,7 @@ function renderEdit() {
   for (const cp of d.cps) {
     const m = cpMarker(cp, { draggable: true }).addTo(editLayer);
     m.on('dragstart', pushHistory);
-    m.on('dragend', (e) => { const ll = e.target.getLatLng(); cp.lat = ll.lat; cp.lon = ll.lng; renderEdit(); });
+    m.on('dragend', (e) => { const ll = e.target.getLatLng(); cp.lat = ll.lat; cp.lon = ll.lng; cp.ele = null; renderEdit(); });
     m.on('click', () => openCpDialog(cp));
   }
   $('editInfo').textContent = `距離 ${fmtDist(routeDistance(d.points))} ・ 点 ${d.points.length} ・ チェックポイント ${d.cps.length}`;

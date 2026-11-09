@@ -19,6 +19,7 @@
   <div class="row"><span id="gpsState" class="dot off"></span><span id="coord">GPS待機中…</span></div>
   <div class="row small"><span id="alt">標高 --</span> ・ <span id="acc">精度 --</span> ・ <span id="fixAge"></span></div>
   <div class="row small" id="recInfo"></div>
+  <div id="navInfo"></div>
 </div>
 
 <button id="btnCenter" class="fab" title="現在地へ">◎</button>
@@ -128,6 +129,14 @@
   </label>
   <label class="check"><input id="setWake" type="checkbox" checked> 記録中は画面をスリープさせない</label>
   <label class="check"><input id="setFollow" type="checkbox" checked> 現在地に地図を追従</label>
+  <label class="check"><input id="setOffRoute" type="checkbox" checked> ルートから外れたら知らせる（振動）</label>
+  <label>外れたと判定する距離
+    <select id="setOffRouteDist">
+      <option value="30">30 m</option>
+      <option value="50" selected>50 m</option>
+      <option value="100">100 m</option>
+    </select>
+  </label>
   <p class="hint">
     ※ ブラウザの仕様上、画面を消したりアプリを切り替えるとGPS取得が止まることがあります。
     復帰時にすぐ1点記録します。確実に一定間隔で記録したい場合は「画面をスリープさせない」をONにし、
@@ -141,5 +150,6 @@
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
 <script src="routes.js"></script>
+<script src="nav.js"></script>
 </body>
 </html>

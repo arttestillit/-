@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
@@ -63,6 +63,59 @@ if (storedSettings && (storedSettings.rev || 1) < 2 && settings.interval === 180
 }
 settings.rev = SETTINGS_REV;
 saveSettings();
+
+/* ---------- 軌跡の保存（IndexedDB。使えない端末は localStorage） ---------- */
+const trackDB = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { reject(new Error('no indexedDB')); return; }
+    const req = indexedDB.open('mgps', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('tracks', { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }));
+  const tx = async (mode, fn) => {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction('tracks', mode);
+      const r = fn(t.objectStore('tracks'));
+      t.oncomplete = () => resolve(r && r.result);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    });
+  };
+  let fallback = false;
+  return {
+    async loadAll() {
+      try {
+        const list = await tx('readonly', (st) => st.getAll());
+        // 旧バージョン（localStorage）の軌跡を移行
+        const old = store.get('mgps.tracks', null);
+        if (old && old.length) {
+          const have = new Set(list.map((t) => t.id));
+          const add = old.filter((t) => !have.has(t.id));
+          await tx('readwrite', (st) => add.forEach((t) => st.put(t)));
+          list.push(...add);
+        }
+        if (old) { try { localStorage.removeItem('mgps.tracks'); } catch {} }
+        return list.sort((a, b) => a.id - b.id);
+      } catch (e) {
+        console.warn('IndexedDB が使えないため localStorage に保存します', e);
+        fallback = true;
+        return store.get('mgps.tracks', []);
+      }
+    },
+    async put(tr) {
+      if (fallback) { store.set('mgps.tracks', tracks); return; }
+      try { await tx('readwrite', (st) => st.put(tr)); }
+      catch (e) { toast('軌跡の保存に失敗しました: ' + e.message, 5000); }
+    },
+    async remove(id) {
+      if (fallback) { store.set('mgps.tracks', tracks); return; }
+      try { await tx('readwrite', (st) => st.delete(id)); } catch {}
+    },
+  };
+})();
 
 /* ---------- ユーティリティ ---------- */
 const $ = (id) => document.getElementById(id);
@@ -352,6 +405,7 @@ function onPosition(pos) {
   }
   renderHud();
   maybeLog();
+  if (typeof navUpdate === 'function') navUpdate();
 }
 function onPositionError(err) {
   const msg = { 1: '位置情報の利用が許可されていません', 2: '位置を取得できません', 3: 'GPSタイムアウト' }[err.code] || err.message;
@@ -393,21 +447,51 @@ $('btnCenter').addEventListener('click', () => {
 });
 
 /* ---------- 軌跡の記録 ---------- */
-// tracks: [{ id, name, start, end, points: [{lat, lon, alt, acc, t}] }]
-let tracks = store.get('mgps.tracks', []);
+// tracks: [{ id, name, start, end, interval, points: [{lat, lon, alt, acc, t}] }]
+let tracks = [];                 // 起動時に IndexedDB から読み込む
+let tracksReady = false;
 let recId = store.get('mgps.recording', null);   // 記録中のトラックID（リロードしても継続）
 let lastLogAt = 0;
-const saveTracks = () => store.set('mgps.tracks', tracks);
+const saveTrack = (tr) => trackDB.put(tr);
 const currentTrack = () => (recId ? tracks.find((t) => t.id === recId) : null);
-{
-  const tr = currentTrack();
-  if (recId && !tr) recId = null;
-  if (tr && tr.points.length) lastLogAt = tr.points[tr.points.length - 1].t;
+
+/* --- 記録の途切れ（アプリを閉じていた等） --- */
+function gapThresholdMs(tr) {
+  let sec = tr.interval;
+  if (!sec) {   // 読み込んだGPXなど：点の間隔の中央値から推定
+    const d = [];
+    for (let i = 1; i < tr.points.length; i++) d.push(tr.points[i].t - tr.points[i - 1].t);
+    d.sort((a, b) => a - b);
+    sec = d.length ? d[Math.floor(d.length / 2)] / 1000 : settings.interval;
+  }
+  return Math.max(sec * 3, 120) * 1000;
+}
+// 実線の区間と、途切れた区間（点線）に分ける
+function splitTrack(tr) {
+  const thr = gapThresholdMs(tr), solid = [], gaps = [];
+  let seg = [];
+  tr.points.forEach((p, i) => {
+    if (i > 0 && p.t - tr.points[i - 1].t > thr) {
+      solid.push(seg); seg = [];
+      gaps.push([tr.points[i - 1], p]);
+    }
+    seg.push([p.lat, p.lon]);
+  });
+  solid.push(seg);
+  return { solid: solid.filter((s) => s.length), gaps };
+}
+function drawTrackLines(tr, group, color) {
+  const { solid, gaps } = splitTrack(tr);
+  L.polyline(solid, { color, weight: 4, opacity: 0.85 }).addTo(group);
+  for (const [a, b] of gaps) {
+    L.polyline([[a.lat, a.lon], [b.lat, b.lon]], { color, weight: 3, opacity: 0.8, dashArray: '2 8', lineCap: 'round' })
+      .bindPopup(`<b>記録なし ${fmtDur(b.t - a.t)}</b><br>${fmtTime(a.t)} 〜 ${fmtTime(b.t)}<br>この間の道のりは直線で表示しています`)
+      .addTo(group);
+  }
 }
 
 // 描画順: ルート（下）→ 過去の軌跡 → 記録中の軌跡（上）
 map.createPane('routePane').style.zIndex = 390;
-const recLine = L.polyline([], { color: '#d32f2f', weight: 4, opacity: 0.85 }).addTo(map);
 const recPoints = L.layerGroup().addTo(map);
 const viewLayer = L.layerGroup().addTo(map);   // 過去の軌跡表示用
 const MAJOR_EVERY_MS = 10 * 60 * 1000;         // 10分ごとに大きな点＋時刻
@@ -438,25 +522,29 @@ function drawTrackPoints(points, group, color) {
 function drawRecording() {
   const tr = currentTrack();
   recPoints.clearLayers();
-  if (!tr) { recLine.setLatLngs([]); return; }
-  recLine.setLatLngs(tr.points.map((p) => [p.lat, p.lon]));
+  if (!tr) return;
+  drawTrackLines(tr, recPoints, '#d32f2f');
   drawTrackPoints(tr.points, recPoints, '#d32f2f');
 }
 
 function logPoint(fix) {
   const tr = currentTrack();
   if (!tr) return;
+  const prev = tr.points[tr.points.length - 1];
   tr.points.push({ lat: fix.lat, lon: fix.lon, alt: fix.alt, acc: fix.acc, t: Date.now() });
   tr.end = Date.now();
   lastLogAt = Date.now();
-  saveTracks();
+  saveTrack(tr);
+  if (prev && Date.now() - prev.t > gapThresholdMs(tr)) {
+    toast(`${fmtDur(Date.now() - prev.t)}間、記録が止まっていました（地図では点線で表示）`, 5000);
+  }
   drawRecording();
   renderHud();
 }
 
 let pendingOneShot = false;
 function maybeLog(force = false) {
-  if (!recId) return;
+  if (!recId || !tracksReady) return;
   const due = force || Date.now() - lastLogAt >= settings.interval * 1000;
   if (!due) return;
   const fresh = latestFix && Date.now() - latestFix.t < 30000;
@@ -507,15 +595,16 @@ $('btnRec').addEventListener('click', () => {
     if (!confirm('記録を停止しますか？')) return;
     if (latestFix && Date.now() - latestFix.t < 30000) logPoint(latestFix); // 終点を記録
     recId = null; store.set('mgps.recording', null);
-    tr.end = Date.now(); saveTracks();
+    tr.end = Date.now(); saveTrack(tr);
     drawRecording();
     if (tr.points.length) showTrack(tr);
     const s = trackStats(tr.points);
     toast(`記録を保存しました：${fmtDist(s.dist)} / ${fmtDur(s.dur)} / ${tr.points.length}点`, 5000);
   } else {
     const now = Date.now();
-    const tr = { id: now, name: `山行 ${fmtDate(now)}`, start: now, end: now, points: [] };
-    tracks.push(tr); saveTracks();
+    const tr = { id: now, name: `山行 ${fmtDate(now)}`, start: now, end: now, interval: settings.interval, points: [] };
+    tracks.push(tr); saveTrack(tr);
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     recId = tr.id; store.set('mgps.recording', recId);
     lastLogAt = 0;
     viewLayer.clearLayers();
@@ -530,7 +619,7 @@ function showTrack(tr) {
   viewLayer.clearLayers();
   if (!tr.points.length) return;
   const lls = tr.points.map((p) => [p.lat, p.lon]);
-  L.polyline(lls, { color: '#7b1fa2', weight: 4, opacity: 0.85 }).addTo(viewLayer);
+  drawTrackLines(tr, viewLayer, '#7b1fa2');
   drawTrackPoints(tr.points, viewLayer, '#7b1fa2');
   if (lls.length > 1) L.circleMarker(lls[lls.length - 1], { radius: 8, color: '#fff', fillColor: '#c62828', fillOpacity: 1, weight: 3 }).bindPopup(`終了 ${fmtTime(tr.points[tr.points.length - 1].t)}`).addTo(viewLayer);
   setFollow(false);
@@ -564,6 +653,7 @@ function downloadFile(name, text, type) {
 function renderTracks() {
   const ul = $('trackList');
   ul.innerHTML = '';
+  if (!tracksReady) { ul.innerHTML = '<li class="empty">読み込み中…</li>'; return; }
   if (!tracks.length) { ul.innerHTML = '<li class="empty">まだ記録はありません</li>'; return; }
   for (const tr of [...tracks].reverse()) {
     const s = trackStats(tr.points);
@@ -582,12 +672,12 @@ function renderTracks() {
     };
     li.querySelector('[data-act=rename]').onclick = () => {
       const n = prompt('軌跡の名前', tr.name);
-      if (n && n.trim()) { tr.name = n.trim(); saveTracks(); renderTracks(); }
+      if (n && n.trim()) { tr.name = n.trim(); saveTrack(tr); renderTracks(); }
     };
     const del = li.querySelector('[data-act=del]');
     if (del) del.onclick = () => {
       if (!confirm(`「${tr.name}」を削除しますか？`)) return;
-      tracks = tracks.filter((t) => t.id !== tr.id); saveTracks(); viewLayer.clearLayers(); renderTracks();
+      tracks = tracks.filter((t) => t.id !== tr.id); trackDB.remove(tr.id); viewLayer.clearLayers(); renderTracks();
     };
     ul.appendChild(li);
   }
@@ -611,7 +701,7 @@ $('gpxImport').addEventListener('change', async (e) => {
     const nameEl = doc.getElementsByTagName('name')[0];
     const tr = { id: Date.now(), name: nameEl ? nameEl.textContent : file.name.replace(/\.gpx$/i, ''),
       start: points[0].t, end: points[points.length - 1].t, points, imported: true };
-    tracks.push(tr); saveTracks(); renderTracks(); closePanels(); showTrack(tr);
+    tracks.push(tr); saveTrack(tr); renderTracks(); closePanels(); showTrack(tr);
     toast(`${points.length}点の軌跡を読み込みました`);
   } catch (err) { toast('GPXの読み込みに失敗: ' + err.message, 5000); }
   e.target.value = '';
@@ -641,14 +731,31 @@ $('setWake').addEventListener('change', (e) => { settings.wake = e.target.checke
 $('setFollow').addEventListener('change', (e) => setFollow(e.target.checked));
 $('appVersion').textContent = `バージョン ${APP_VERSION}`;
 
+/* ---------- 情報欄の高さに合わせて地図のボタン位置を調整 ---------- */
+if ('ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--hud-h', $('hud').offsetHeight + 'px');
+  }).observe($('hud'));
+}
+
 /* ---------- 起動 ---------- */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW登録失敗', e));
 }
 renderAreas();
-drawRecording();
 updateRecButton();
-updateWakeLock();
 startWatch();
 renderHud();
-if (recId) maybeLog();
+trackDB.loadAll().then((list) => {
+  tracks = list;
+  tracksReady = true;
+  const tr = currentTrack();
+  if (recId && !tr) { recId = null; store.set('mgps.recording', null); }
+  if (tr && tr.points.length) lastLogAt = tr.points[tr.points.length - 1].t;
+  drawRecording();
+  updateRecButton();
+  updateWakeLock();
+  renderHud();
+  if (!$('panelTracks').hidden) renderTracks();
+  if (recId) maybeLog();
+});

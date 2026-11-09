@@ -149,3 +149,12 @@ body.editing #map { bottom: 0; }
 .dialog .btns button { padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font-size: 14px; }
 .dialog .btns button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .dialog .btns button.danger { color: var(--danger); }
+
+/* ---------- ナビ表示 ---------- */
+#navInfo:empty { display: none; }
+#navInfo { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.6; }
+#navInfo b { font-size: 15px; }
+#navInfo.off div:first-child { color: #fff; background: #e65100; border-radius: 6px; padding: 2px 8px; margin-bottom: 2px; font-weight: 700; }
+.nav-badge { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--c); color: #fff; font-size: 11px; font-weight: 700; margin-right: 4px; vertical-align: 1px; }
+.leaflet-top { top: calc(var(--hud-h, 92px) + 8px + env(safe-area-inset-top)); }
