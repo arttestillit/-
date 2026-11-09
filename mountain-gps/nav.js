@@ -93,11 +93,16 @@ function navUpdate() {
       if (!offSince) offSince = Date.now();
       if (!offAlerted && settings.offRouteAlert && Date.now() - offSince >= OFF_ROUTE_CONFIRM_MS) {
         offAlerted = true;
-        try { navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]); } catch {}
+        if (NATIVE) NATIVE.alert('⚠ ルートから外れています', `ルートから ${fmtDist(offDist)} 離れています。アプリを開いて確認してください。`);
+        else { try { navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]); } catch {} }
         toast(`⚠ ルートから ${fmtDist(offDist)} 外れています`, 6000);
       }
     } else if (back) {
-      if (offAlerted) { toast('ルートに戻りました'); try { navigator.vibrate && navigator.vibrate(150); } catch {} }
+      if (offAlerted) {
+        toast('ルートに戻りました');
+        if (NATIVE) NATIVE.alert('ルートに戻りました', 'ルート上を歩いています。', false);
+        else { try { navigator.vibrate && navigator.vibrate(150); } catch {} }
+      }
       offSince = 0; offAlerted = false;
     }
     // 外れているときは、ルートの最寄り地点まで線を引く

@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">山GPS</string>
+    <string name="title_activity_main">山GPS</string>
+    <string name="package_name">io.github.arttestillit.mountaingps</string>
+    <string name="custom_url_scheme">io.github.arttestillit.mountaingps</string>
+    <string name="capacitor_background_geolocation_notification_channel_name">記録中の表示</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_tracking</string>
+    <string name="capacitor_background_geolocation_notification_color">#1F5130</string>
+</resources>

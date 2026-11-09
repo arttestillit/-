@@ -137,7 +137,12 @@
       <option value="100">100 m</option>
     </select>
   </label>
-  <p class="hint">
+  <div class="native-only">
+    <p class="hint">記録中は通知欄に「山GPS 記録中」が表示され、画面を消しても・他のアプリを使っていても記録が続きます。
+      記録が止まる場合は、電池の設定を見直してください。</p>
+    <button id="btnGuide" type="button">バックグラウンド記録の設定ガイド</button>
+  </div>
+  <p class="hint web-only">
     ※ ブラウザの仕様上、画面を消したりアプリを切り替えるとGPS取得が止まることがあります。
     復帰時にすぐ1点記録します。確実に一定間隔で記録したい場合は「画面をスリープさせない」をONにし、
     画面の明るさを最小にしてお使いください。
@@ -145,9 +150,30 @@
   <p class="small" id="appVersion"></p>
 </section>
 
+<!-- アプリ版：初回の設定ガイド -->
+<div id="guideDialog" class="dialog-back" hidden>
+  <div class="dialog guide">
+    <h3>記録を止めないための設定</h3>
+    <p class="hint">画面を消しても記録を続けるには、次の設定が必要です。登山の前に一度だけ確認してください。</p>
+    <ol>
+      <li><b>位置情報</b>：「アプリの使用中のみ許可」または「常に許可」。<b>正確な位置情報</b>もONに</li>
+      <li><b>通知</b>：許可する（記録中の表示とルート外れの通知に使います）</li>
+      <li><b>電池</b>：アプリ情報 →「バッテリー」→「<b>制限なし</b>」（機種によっては「バッテリーセーバー」「電池の最適化」）</li>
+      <li><b>Xiaomi / Redmi / POCO</b>：アプリ情報 →「<b>自動起動</b>」をON、「バッテリーセーバー」を「<b>制限なし</b>」</li>
+      <li>記録中は、最近使ったアプリの一覧から<b>山GPSをスワイプして消さない</b>でください（記録が止まります）</li>
+    </ol>
+    <div class="btns">
+      <button id="guideSettings" type="button">アプリ情報（設定）を開く</button>
+      <span style="flex:1"></span>
+      <button id="guideClose" type="button" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" hidden></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
+<script src="native.js"></script>
 <script src="app.js"></script>
 <script src="routes.js"></script>
 <script src="nav.js"></script>

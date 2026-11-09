@@ -75,6 +75,7 @@ mountain-gps/
 ├── app.js                地図・GPS・記録・ダウンロードの処理
 ├── routes.js             ルート・チェックポイントの作成と表示
 ├── nav.js                次のチェックポイント・ルート外れ警告
+├── native.js             Androidアプリ版だけで使う機能（../android-app）
 ├── sw.js                 Service Worker（オフライン対応・地図タイルのキャッシュ）
 ├── manifest.webmanifest  PWA設定
 ├── icon.svg              アイコン

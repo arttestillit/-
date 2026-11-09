@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
@@ -54,7 +54,7 @@ const store = {
 const SETTINGS_REV = 2;
 const storedSettings = store.get('mgps.settings', null);
 const settings = Object.assign(
-  { interval: 30, wake: true, follow: true, layer: 'gsi_std' },
+  { interval: 30, wake: !NATIVE, follow: true, layer: 'gsi_std' },   // アプリ版は画面を消しても記録できる
   storedSettings || {},
 );
 const saveSettings = () => store.set('mgps.settings', settings);
@@ -171,9 +171,37 @@ updateLabelVisibility();
 L.control.zoom({ position: 'topright' }).addTo(map);
 L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
 
+// 保存済みのタイルを優先して表示するタイルレイヤー
+// （アプリ版は Service Worker が使えないため、ここで Cache Storage を直接参照する）
+const CachedTileLayer = L.TileLayer.extend({
+  createTile(coords, done) {
+    const img = document.createElement('img');
+    img.alt = ''; img.setAttribute('role', 'presentation');
+    const url = this.getTileUrl(coords);
+    const finish = (blob) => {
+      const obj = URL.createObjectURL(blob);
+      img.onload = () => { URL.revokeObjectURL(obj); done(null, img); };
+      img.onerror = (e) => { URL.revokeObjectURL(obj); done(e, img); };
+      img.src = obj;
+    };
+    (async () => {
+      try {
+        const cache = 'caches' in window ? await caches.open(TILE_CACHE) : null;
+        const hit = cache && await cache.match(url);
+        if (hit) { finish(await hit.blob()); return; }
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (cache) cache.put(url, res.clone()).catch(() => {});   // 見た地図も保存しておく
+        finish(await res.blob());
+      } catch (e) { done(e, img); }
+    })();
+    return img;
+  },
+});
+
 const baseLayers = {};
 for (const [id, def] of Object.entries(LAYERS)) {
-  baseLayers[def.name] = L.tileLayer(def.url, {
+  baseLayers[def.name] = new CachedTileLayer(def.url, {
     maxZoom: 18, maxNativeZoom: def.maxNativeZoom, minZoom: def.minZoom,
     attribution: def.attribution, crossOrigin: true,
   });
@@ -414,6 +442,7 @@ function onPositionError(err) {
   if (err.code === 1) toast(msg + '（ブラウザの設定で許可してください）', 5000);
 }
 function startWatch() {
+  if (NATIVE) { NATIVE.watch(!!recId, onPosition, onPositionError); return; }
   if (!('geolocation' in navigator)) { $('coord').textContent = 'この端末は位置情報に対応していません'; return; }
   if (watchId != null) navigator.geolocation.clearWatch(watchId);
   watchId = navigator.geolocation.watchPosition(onPosition, onPositionError,
@@ -550,7 +579,7 @@ function maybeLog(force = false) {
   const fresh = latestFix && Date.now() - latestFix.t < 30000;
   if (fresh) { logPoint(latestFix); return; }
   // 位置が古い場合は改めて取得してから記録
-  if (pendingOneShot || !('geolocation' in navigator)) return;
+  if (pendingOneShot || NATIVE || !('geolocation' in navigator)) return;
   pendingOneShot = true;
   navigator.geolocation.getCurrentPosition(
     (pos) => { pendingOneShot = false; onPosition(pos); if (Date.now() - lastLogAt >= settings.interval * 1000) logPoint(latestFix); },
@@ -595,6 +624,7 @@ $('btnRec').addEventListener('click', () => {
     if (!confirm('記録を停止しますか？')) return;
     if (latestFix && Date.now() - latestFix.t < 30000) logPoint(latestFix); // 終点を記録
     recId = null; store.set('mgps.recording', null);
+    startWatch();   // アプリ版：裏での位置取得（通知）を止める
     tr.end = Date.now(); saveTrack(tr);
     drawRecording();
     if (tr.points.length) showTrack(tr);
@@ -606,6 +636,7 @@ $('btnRec').addEventListener('click', () => {
     tracks.push(tr); saveTrack(tr);
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     recId = tr.id; store.set('mgps.recording', recId);
+    if (NATIVE) { NATIVE.requestNotifications().then(startWatch); }
     lastLogAt = 0;
     viewLayer.clearLayers();
     maybeLog(true);   // 始点をすぐ記録
@@ -644,6 +675,7 @@ ${pts}
 `;
 }
 function downloadFile(name, text, type) {
+  if (NATIVE) { NATIVE.saveAndShare(name, text); return; }
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
@@ -738,8 +770,24 @@ if ('ResizeObserver' in window) {
   }).observe($('hud'));
 }
 
+/* ---------- アプリ版：戻るボタン・初回ガイド ---------- */
+function openGuide() { $('guideDialog').hidden = false; }
+if (NATIVE) {
+  NATIVE.onBack(() => {
+    if (!$('cpDialog').hidden) { $('cpCancel').click(); return; }
+    if (!$('guideDialog').hidden) { $('guideDialog').hidden = true; return; }
+    if (typeof editing !== 'undefined' && editing) { $('editCancel').click(); return; }
+    if ([...document.querySelectorAll('.panel')].some((p) => !p.hidden)) { closePanels(); return; }
+    NATIVE.minimize();   // 終了すると記録が止まるので、ホームに戻るだけにする
+  });
+  $('guideClose').addEventListener('click', () => { $('guideDialog').hidden = true; store.set('mgps.guideShown', true); });
+  $('guideSettings').addEventListener('click', () => NATIVE.openSettings());
+  $('btnGuide').addEventListener('click', openGuide);
+  if (!store.get('mgps.guideShown', false)) setTimeout(openGuide, 800);
+}
+
 /* ---------- 起動 ---------- */
-if ('serviceWorker' in navigator) {
+if (!NATIVE && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW登録失敗', e));
 }
 renderAreas();
