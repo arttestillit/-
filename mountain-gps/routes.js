@@ -174,34 +174,113 @@ $('routeImport').addEventListener('change', async (e) => {
 });
 
 /* ---------- 作成・編集 ---------- */
-let editing = null;     // { routeId|null, draft: {name, points, cps}, mode, history: [] }
+// 編集中のルートは「経由点（タップした点）」と「経由点の間の線（道に沿った線）」で持つ
+//   draft = { name, wps: [{lat, lon}], legs: [[[lat, lon], ...], ...], cps }
+//   legs[i] は wps[i] → wps[i+1] を結ぶ線
+let editing = null;     // { routeId|null, draft, mode, history: [], follow: bool }
 const editLayer = L.layerGroup();
+const candLayer = L.layerGroup();   // 分岐点・山頂などの候補
+const CAND_MIN_ZOOM = 14;
+const SNAP_PX = 28;                 // タップ位置から道に吸い寄せる距離（画面上のピクセル）
 
-function snapshot() { return JSON.stringify({ points: editing.draft.points, cps: editing.draft.cps }); }
+function snapshot() { const d = editing.draft; return JSON.stringify({ wps: d.wps, legs: d.legs, cps: d.cps }); }
 function pushHistory() { editing.history.push(snapshot()); if (editing.history.length > 200) editing.history.shift(); }
+
+const llOf = (p) => [p.lat, p.lon];
+function flattenLegs(d) {
+  if (!d.legs.length) return d.wps.map((p) => ({ lat: p.lat, lon: p.lon }));
+  const out = [];
+  d.legs.forEach((leg, i) => leg.forEach((c, j) => { if (i > 0 && j === 0) return; out.push({ lat: c[0], lon: c[1] }); }));
+  return out;
+}
+function metersPerPixel() {
+  const c = map.getSize().divideBy(2);
+  return map.distance(map.containerPointToLatLng(c), map.containerPointToLatLng(c.add([10, 0]))) / 10;
+}
+
+// 2つの経由点を結ぶ線（道に沿うモードで道が見つかれば道なり、なければ直線）
+function makeLeg(a, b) {
+  if (editing.follow && trailNet.nodes.size) {
+    const r = Math.max(40, metersPerPixel() * SNAP_PX);
+    const s = snapToTrail(a.lat, a.lon, r), e = snapToTrail(b.lat, b.lon, r);
+    if (s && e) {
+      const path = routeAlongTrails(s, e);
+      if (path) { path[0] = llOf(a); path[path.length - 1] = llOf(b); return path; }
+    }
+    editing.straightCount = (editing.straightCount || 0) + 1;
+  }
+  return [llOf(a), llOf(b)];
+}
+// タップした点を道の上に吸い寄せる
+function snapPoint(ll) {
+  if (!editing.follow || !trailNet.nodes.size) return ll;
+  const s = snapToTrail(ll.lat, ll.lon, Math.max(25, metersPerPixel() * SNAP_PX));
+  return s ? { lat: s.lat, lon: s.lon } : ll;
+}
+
+function addWaypoint(ll) {
+  const d = editing.draft;
+  pushHistory();
+  editing.straightCount = 0;
+  const p = { lat: ll.lat, lon: ll.lon };
+  if (d.wps.length) d.legs.push(makeLeg(d.wps[d.wps.length - 1], p));
+  d.wps.push(p);
+  if (editing.straightCount) toast('この区間は道が見つからないため直線で結びました');
+  renderEdit();
+}
+function recomputeAround(i) {
+  const d = editing.draft;
+  if (i > 0) d.legs[i - 1] = makeLeg(d.wps[i - 1], d.wps[i]);
+  if (i < d.wps.length - 1) d.legs[i] = makeLeg(d.wps[i], d.wps[i + 1]);
+}
+function removeWaypoint(i) {
+  const d = editing.draft;
+  pushHistory();
+  if (d.wps.length === 1) { d.wps = []; d.legs = []; }
+  else if (i === 0) { d.wps.shift(); d.legs.shift(); }
+  else if (i === d.wps.length - 1) { d.wps.pop(); d.legs.pop(); }
+  else { d.wps.splice(i, 1); d.legs.splice(i - 1, 2, makeLeg(d.wps[i - 1], d.wps[i])); }
+  renderEdit();
+}
+// 線の途中に経由点を追加（線はそのまま2つに分ける）
+function splitLeg(i) {
+  const d = editing.draft, leg = d.legs[i];
+  pushHistory();
+  let k = Math.floor(leg.length / 2), p;
+  if (leg.length === 2) { p = [(leg[0][0] + leg[1][0]) / 2, (leg[0][1] + leg[1][1]) / 2]; d.legs.splice(i, 1, [leg[0], p], [p, leg[1]]); }
+  else { p = leg[k]; d.legs.splice(i, 1, leg.slice(0, k + 1), leg.slice(k)); }
+  d.wps.splice(i + 1, 0, { lat: p[0], lon: p[1] });
+  renderEdit();
+}
 
 function startEdit(r) {
   if (recId && !confirm('記録は続けたままルートを編集します。よろしいですか？')) return;
-  editing = {
-    routeId: r ? r.id : null,
-    draft: r ? JSON.parse(JSON.stringify({ name: r.name, points: r.points, cps: r.cps })) : { name: '', points: [], cps: [] },
-    mode: 'line', history: [],
-  };
+  let draft;
+  if (r && r.wps && r.legs) draft = JSON.parse(JSON.stringify({ name: r.name, wps: r.wps, legs: r.legs, cps: r.cps }));
+  else if (r) {   // 以前の形式（点を直線で結んだルート）や GPX から読み込んだルート
+    const wps = r.points.map((p) => ({ lat: p.lat, lon: p.lon }));
+    const legs = wps.slice(1).map((p, i) => [llOf(wps[i]), llOf(p)]);
+    draft = { name: r.name, wps, legs, cps: JSON.parse(JSON.stringify(r.cps)) };
+  } else draft = { name: '', wps: [], legs: [], cps: [] };
+  editing = { routeId: r ? r.id : null, draft, mode: 'line', history: [], follow: store.get('mgps.followTrails', true) };
   closePanels();
   setFollow(false);
   document.body.classList.add('editing');
   $('editBar').hidden = false;
   map.doubleClickZoom.disable();
-  editLayer.addTo(map);
+  editLayer.addTo(map); candLayer.addTo(map);
   drawActiveRoute();     // 編集中は通常表示を消す
   setMode('line');
+  updateFollowButton();
   if (r) fitRoute(r);
   renderEdit();
+  ensureTrails();
 }
 
 function endEdit() {
   editing = null;
   editLayer.clearLayers(); editLayer.remove();
+  candLayer.clearLayers(); candLayer.remove();
   document.body.classList.remove('editing');
   $('editBar').hidden = true;
   map.doubleClickZoom.enable();
@@ -213,42 +292,122 @@ function setMode(mode) {
   $('modeLine').classList.toggle('active', mode === 'line');
   $('modeCp').classList.toggle('active', mode === 'cp');
   $('editHint').textContent = mode === 'line'
-    ? '地図をタップして道に沿って点を打ちます。□はドラッグで移動、タップで削除。○をタップすると間に点を追加。'
-    : '地図（または線の□）をタップしてチェックポイントを置きます。置いたポイントはドラッグで移動、タップで編集。';
+    ? '通る場所を順にタップ → 道に沿って結びます。◇分岐・▲山頂もタップで選べます。□ドラッグで移動／タップで削除、＋で間に追加'
+    : '◇分岐・▲山頂・🏠小屋・👁展望地をタップ → 名前入りで追加。地図の好きな場所にも置けます';
+  renderCandidates();
 }
 $('modeLine').addEventListener('click', () => { setMode('line'); renderEdit(); });
 $('modeCp').addEventListener('click', () => { setMode('cp'); renderEdit(); });
+
+function updateFollowButton() {
+  $('followTrails').classList.toggle('active', editing.follow);
+  $('followTrails').textContent = editing.follow ? '🛤 道に沿う：ON' : '📏 道に沿う：OFF（直線）';
+}
+$('followTrails').addEventListener('click', () => {
+  editing.follow = !editing.follow;
+  store.set('mgps.followTrails', editing.follow);
+  updateFollowButton();
+  if (editing.follow) ensureTrails();
+  toast(editing.follow ? 'これから打つ点は道に沿って結びます' : 'これから打つ点は直線で結びます');
+});
+
+/* --- 道のデータの読み込みと候補表示 --- */
+let trailStatus = '';
+let trailTimer = null;
+async function ensureTrails() {
+  if (!editing || !editing.follow) { trailStatus = ''; renderEditInfo(); return; }
+  if (map.getZoom() < TRAIL_MIN_ZOOM) { trailStatus = '道のデータ：地図を拡大すると読み込みます'; renderEditInfo(); renderCandidates(); return; }
+  const b = map.getBounds().pad(0.5);
+  const sb = { s: b.getSouth(), w: b.getWest(), n: b.getNorth(), e: b.getEast() };
+  if (trailsCover(sb)) { trailStatus = '道のデータ：読み込み済み'; renderEditInfo(); renderCandidates(); return; }
+  trailStatus = '道のデータ：読み込み中…'; renderEditInfo();
+  try {
+    await loadTrails(b);
+    map.attributionControl.addAttribution('道データ &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>');
+    trailStatus = '道のデータ：読み込み済み';
+  } catch {
+    trailStatus = navigator.onLine === false ? '道のデータ：圏外のため直線で結びます' : '道のデータ：取得できませんでした（直線で結びます）';
+  }
+  renderEditInfo();
+  renderCandidates();
+}
+map.on('moveend', () => {
+  if (!editing) return;
+  clearTimeout(trailTimer);
+  trailTimer = setTimeout(ensureTrails, 500);
+  renderCandidates();
+});
+
+const POI_MARK = { summit: '▲', rest: '🏠', view: '👁' };
+function renderCandidates() {
+  candLayer.clearLayers();
+  if (!editing || map.getZoom() < CAND_MIN_ZOOM) return;
+  const b = map.getBounds().pad(0.2);
+  const junctions = trailJunctions(b);
+  if (junctions.length > 600) return;   // 多すぎる場合は拡大してもらう
+  for (const j of junctions) {
+    L.marker([j.lat, j.lon], {
+      icon: L.divIcon({ className: '', html: '<div class="cand-junction"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
+      zIndexOffset: 300, bubblingMouseEvents: false,
+    }).on('click', () => pickCandidate({ lat: j.lat, lon: j.lon, type: 'junction', name: '' })).addTo(candLayer);
+  }
+  for (const p of trailNet.pois.values()) {
+    if (!b.contains([p.lat, p.lon])) continue;
+    const m = L.marker([p.lat, p.lon], {
+      icon: L.divIcon({ className: '', html: `<div class="cand-poi" style="--c:${CP_TYPES[p.type].color}">${POI_MARK[p.type]}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+      zIndexOffset: 400, bubblingMouseEvents: false,
+    }).on('click', () => pickCandidate(p)).addTo(candLayer);
+    if (p.name) m.bindTooltip(escapeHtml(p.name) + (p.ele != null ? ` ${Math.round(p.ele)}m` : ''), { permanent: true, direction: 'bottom', offset: [0, 8], className: 'cand-label' });
+  }
+}
+// 候補をタップ：線モードなら経由点に、ポイントモードなら種類・名前入りでチェックポイント追加
+function pickCandidate(c) {
+  if (editing.mode === 'line') { addWaypoint({ lat: c.lat, lon: c.lon }); return; }
+  openCpDialog(null, { lat: c.lat, lon: c.lon }, { type: c.type, name: c.name, ele: c.ele });
+}
 
 function vertexIcon(cls) {
   return L.divIcon({ className: '', html: `<div class="v-handle ${cls}"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
 }
 const midIcon = L.divIcon({ className: '', html: '<div class="v-mid">+</div>', iconSize: [18, 18], iconAnchor: [9, 9] });
 
+function renderEditInfo() {
+  if (!editing) return;
+  const d = editing.draft;
+  $('editInfo').innerHTML = `距離 ${fmtDist(routeDistance(flattenLegs(d)))} ・ 点 ${d.wps.length} ・ チェックポイント ${d.cps.length}` +
+    (trailStatus ? `<br><span class="small">${escapeHtml(trailStatus)}</span>` : '');
+}
+
 function renderEdit() {
   if (!editing) return;
   const d = editing.draft;
   editLayer.clearLayers();
-  drawRouteInto(editLayer, d);
-  const last = d.points.length - 1;
-  d.points.forEach((p, i) => {
+  drawRouteInto(editLayer, { name: d.name, points: flattenLegs(d) });
+  const last = d.wps.length - 1;
+  d.wps.forEach((p, i) => {
     const m = L.marker([p.lat, p.lon], {
       icon: vertexIcon(i === 0 ? 'first' : i === last ? 'last' : ''), draggable: true, zIndexOffset: 600,
     }).addTo(editLayer);
     m.on('dragstart', pushHistory);
-    m.on('drag', (e) => { p.lat = e.latlng.lat; p.lon = e.latlng.lng; });
-    m.on('dragend', renderEdit);
+    m.on('dragend', (e) => {
+      const ll = snapPoint({ lat: e.target.getLatLng().lat, lon: e.target.getLatLng().lng });
+      p.lat = ll.lat; p.lon = ll.lon;
+      editing.straightCount = 0;
+      recomputeAround(i);
+      renderEdit();
+    });
     m.on('click', () => {
       if (editing.mode === 'cp') { openCpDialog(null, { lat: p.lat, lon: p.lon }); return; }
-      if (!confirm(`${i + 1}番目の点を削除しますか？`)) return;
-      pushHistory(); d.points.splice(i, 1); renderEdit();
+      if (confirm(`${i + 1}番目の点を削除しますか？`)) removeWaypoint(i);
     });
   });
   // 線の途中に点を追加するための「＋」
-  for (let i = 0; i < last && editing.mode === 'line'; i++) {
-    const a = d.points[i], b = d.points[i + 1];
-    L.marker([(a.lat + b.lat) / 2, (a.lon + b.lon) / 2], { icon: midIcon, zIndexOffset: 550 })
-      .on('click', () => { pushHistory(); d.points.splice(i + 1, 0, { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 }); renderEdit(); })
-      .addTo(editLayer);
+  if (editing.mode === 'line') {
+    d.legs.forEach((leg, i) => {
+      const k = Math.floor(leg.length / 2);
+      const pos = leg.length === 2 ? [(leg[0][0] + leg[1][0]) / 2, (leg[0][1] + leg[1][1]) / 2] : leg[k];
+      L.marker(pos, { icon: midIcon, zIndexOffset: 550 }).on('click', () => splitLeg(i)).addTo(editLayer);
+    });
   }
   for (const cp of d.cps) {
     const m = cpMarker(cp, { draggable: true }).addTo(editLayer);
@@ -256,17 +415,14 @@ function renderEdit() {
     m.on('dragend', (e) => { const ll = e.target.getLatLng(); cp.lat = ll.lat; cp.lon = ll.lng; cp.ele = null; renderEdit(); });
     m.on('click', () => openCpDialog(cp));
   }
-  $('editInfo').textContent = `距離 ${fmtDist(routeDistance(d.points))} ・ 点 ${d.points.length} ・ チェックポイント ${d.cps.length}`;
+  renderEditInfo();
 }
 
 map.on('click', (e) => {
   if (!editing) return;
   const ll = { lat: e.latlng.lat, lon: e.latlng.lng };
-  if (editing.mode === 'line') {
-    pushHistory(); editing.draft.points.push(ll); renderEdit();
-  } else {
-    openCpDialog(null, ll);
-  }
+  if (editing.mode === 'line') addWaypoint(snapPoint(ll));
+  else openCpDialog(null, ll);
 });
 
 $('editUndo').addEventListener('click', () => {
@@ -281,7 +437,7 @@ $('editCancel').addEventListener('click', () => {
 });
 $('editSave').addEventListener('click', () => {
   const d = editing.draft;
-  if (!d.points.length && !d.cps.length) { toast('地図をタップしてルートを描いてください'); return; }
+  if (!d.wps.length && !d.cps.length) { toast('地図をタップしてルートを描いてください'); return; }
   let r = routes.find((x) => x.id === editing.routeId);
   if (!r) {
     const name = prompt('ルートの名前', d.name || `ルート ${fmtDate(Date.now())}`);
@@ -289,7 +445,9 @@ $('editSave').addEventListener('click', () => {
     r = { id: Date.now(), name: name.trim() || `ルート ${fmtDate(Date.now())}`, created: Date.now(), points: [], cps: [] };
     routes.push(r);
   }
-  r.points = d.points.map((p) => ({ lat: p.lat, lon: p.lon }));
+  r.points = flattenLegs(d);
+  r.wps = d.wps;
+  r.legs = d.legs;
   r.cps = d.cps;
   saveRoutes();
   endEdit();
@@ -311,10 +469,10 @@ function selectCpType(k) {
   cpTarget.type = k;
   cpTypesEl.querySelectorAll('button').forEach((b) => b.classList.toggle('sel', b.dataset.type === k));
 }
-function openCpDialog(cp, ll) {
-  cpTarget = { cp, ll, type: cp ? cp.type : 'summit' };
+function openCpDialog(cp, ll, preset = null) {
+  cpTarget = { cp, ll, type: cp ? cp.type : (preset ? preset.type : 'summit'), ele: preset ? preset.ele : null };
   $('cpTitle').textContent = cp ? 'チェックポイントを編集' : 'チェックポイントを追加';
-  $('cpName').value = cp ? cp.name : '';
+  $('cpName').value = cp ? cp.name : (preset ? preset.name : '');
   $('cpDelete').hidden = !cp;
   selectCpType(cpTarget.type);
   $('cpDialog').hidden = false;
@@ -326,7 +484,8 @@ $('cpOk').addEventListener('click', () => {
   pushHistory();
   const name = $('cpName').value.trim();
   if (cpTarget.cp) { cpTarget.cp.type = cpTarget.type; cpTarget.cp.name = name; }
-  else editing.draft.cps.push({ id: Date.now(), type: cpTarget.type, name, lat: cpTarget.ll.lat, lon: cpTarget.ll.lon });
+  else editing.draft.cps.push({ id: Date.now(), type: cpTarget.type, name, lat: cpTarget.ll.lat, lon: cpTarget.ll.lon,
+    ele: cpTarget.ele != null ? cpTarget.ele : null });
   closeCpDialog(); renderEdit();
 });
 $('cpDelete').addEventListener('click', () => {

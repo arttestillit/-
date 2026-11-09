@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4.0';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
