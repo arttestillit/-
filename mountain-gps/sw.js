@@ -1,7 +1,7 @@
 'use strict';
 // オフライン山GPS — Service Worker
 // アプリ本体はプリキャッシュ、地図タイルはキャッシュ優先（閲覧したタイルも自動で保存）
-const SHELL_CACHE = 'mgps-shell-v9';
+const SHELL_CACHE = 'mgps-shell-v10';
 const TILE_CACHE = 'mgps-tiles-v1';
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'native.js', 'trails.js', 'routes.js', 'nav.js', 'manifest.webmanifest', 'icon.svg',
@@ -53,7 +53,8 @@ self.addEventListener('fetch', (e) => {
       const fallback = async () => (await cache.match(req, { ignoreSearch: true })) ||
         (await cache.match('index.html')) || null;
       try {
-        const res = await fetch(req);
+        // ブラウザのHTTPキャッシュを使わず毎回確認（GitHub Pages は最大10分古いファイルを返すことがあるため）
+        const res = await fetch(req, { cache: 'no-cache' });
         if (res.ok) { cache.put(req, res.clone()); return res; }
         // 公開サイトが一時的に消えても（404等）、保存済みのアプリで動き続ける
         return (await fallback()) || res;
