@@ -183,7 +183,8 @@ const candLayer = L.layerGroup();   // 分岐点・山頂などの候補
 const CAND_MIN_ZOOM = 14;
 const SNAP_PX = 28;                 // タップ位置から道に吸い寄せる距離（画面上のピクセル）
 
-function snapshot() { const d = editing.draft; return JSON.stringify({ wps: d.wps, legs: d.legs, cps: d.cps }); }
+// pend[i] = true: 道に沿わせたかったが、道のデータがまだ無く直線にした区間（読み込み後に引き直す）
+function snapshot() { const d = editing.draft; return JSON.stringify({ wps: d.wps, legs: d.legs, pend: d.pend, cps: d.cps }); }
 function pushHistory() { editing.history.push(snapshot()); if (editing.history.length > 200) editing.history.shift(); }
 
 const llOf = (p) => [p.lat, p.lon];
@@ -198,18 +199,37 @@ function metersPerPixel() {
   return map.distance(map.containerPointToLatLng(c), map.containerPointToLatLng(c.add([10, 0]))) / 10;
 }
 
+// 2点を囲む範囲の道のデータが読み込み済みか
+function trailsReadyFor(a, b) {
+  const pad = 0.003;
+  return trailsCover({ s: Math.min(a.lat, b.lat) - pad, w: Math.min(a.lon, b.lon) - pad,
+    n: Math.max(a.lat, b.lat) + pad, e: Math.max(a.lon, b.lon) + pad });
+}
 // 2つの経由点を結ぶ線（道に沿うモードで道が見つかれば道なり、なければ直線）
+// 戻り値 { path, pending }  pending: 道のデータが未読み込みのため仮に直線にした
 function makeLeg(a, b) {
-  if (editing.follow && trailNet.nodes.size) {
+  if (editing.follow) {
+    if (!trailsReadyFor(a, b)) {
+      editing.waitCount = (editing.waitCount || 0) + 1;
+      return { path: [llOf(a), llOf(b)], pending: true };
+    }
     const r = Math.max(40, metersPerPixel() * SNAP_PX);
     const s = snapToTrail(a.lat, a.lon, r), e = snapToTrail(b.lat, b.lon, r);
     if (s && e) {
       const path = routeAlongTrails(s, e);
-      if (path) { path[0] = llOf(a); path[path.length - 1] = llOf(b); return path; }
+      if (path) { path[0] = llOf(a); path[path.length - 1] = llOf(b); return { path, pending: false }; }
     }
     editing.straightCount = (editing.straightCount || 0) + 1;
   }
-  return [llOf(a), llOf(b)];
+  return { path: [llOf(a), llOf(b)], pending: false };
+}
+function setLeg(i, a, b) { const r = makeLeg(a, b); editing.draft.legs[i] = r.path; editing.draft.pend[i] = r.pending; }
+function legNotice() {
+  if (editing.waitCount) {
+    toast('道のデータを読み込み中です。読み込みが終わると自動で道に沿った線になります');
+    ensureTrailsFor(editing.draft.wps);
+  } else if (editing.straightCount) toast('この区間は近くに道が見つからないため直線で結びました');
+  editing.waitCount = 0; editing.straightCount = 0;
 }
 // タップした点を道の上に吸い寄せる
 function snapPoint(ll) {
@@ -223,23 +243,28 @@ function addWaypoint(ll) {
   pushHistory();
   editing.straightCount = 0;
   const p = { lat: ll.lat, lon: ll.lon };
-  if (d.wps.length) d.legs.push(makeLeg(d.wps[d.wps.length - 1], p));
+  if (d.wps.length) setLeg(d.legs.length, d.wps[d.wps.length - 1], p);
   d.wps.push(p);
-  if (editing.straightCount) toast('この区間は道が見つからないため直線で結びました');
+  legNotice();
   renderEdit();
 }
 function recomputeAround(i) {
   const d = editing.draft;
-  if (i > 0) d.legs[i - 1] = makeLeg(d.wps[i - 1], d.wps[i]);
-  if (i < d.wps.length - 1) d.legs[i] = makeLeg(d.wps[i], d.wps[i + 1]);
+  if (i > 0) setLeg(i - 1, d.wps[i - 1], d.wps[i]);
+  if (i < d.wps.length - 1) setLeg(i, d.wps[i], d.wps[i + 1]);
+  legNotice();
 }
 function removeWaypoint(i) {
   const d = editing.draft;
   pushHistory();
-  if (d.wps.length === 1) { d.wps = []; d.legs = []; }
-  else if (i === 0) { d.wps.shift(); d.legs.shift(); }
-  else if (i === d.wps.length - 1) { d.wps.pop(); d.legs.pop(); }
-  else { d.wps.splice(i, 1); d.legs.splice(i - 1, 2, makeLeg(d.wps[i - 1], d.wps[i])); }
+  if (d.wps.length === 1) { d.wps = []; d.legs = []; d.pend = []; }
+  else if (i === 0) { d.wps.shift(); d.legs.shift(); d.pend.shift(); }
+  else if (i === d.wps.length - 1) { d.wps.pop(); d.legs.pop(); d.pend.pop(); }
+  else {
+    d.wps.splice(i, 1); d.legs.splice(i - 1, 2, null); d.pend.splice(i - 1, 2, false);
+    setLeg(i - 1, d.wps[i - 1], d.wps[i]);
+    legNotice();
+  }
   renderEdit();
 }
 // 線の途中に経由点を追加（線はそのまま2つに分ける）
@@ -249,6 +274,7 @@ function splitLeg(i) {
   let k = Math.floor(leg.length / 2), p;
   if (leg.length === 2) { p = [(leg[0][0] + leg[1][0]) / 2, (leg[0][1] + leg[1][1]) / 2]; d.legs.splice(i, 1, [leg[0], p], [p, leg[1]]); }
   else { p = leg[k]; d.legs.splice(i, 1, leg.slice(0, k + 1), leg.slice(k)); }
+  d.pend.splice(i, 1, d.pend[i], d.pend[i]);
   d.wps.splice(i + 1, 0, { lat: p[0], lon: p[1] });
   renderEdit();
 }
@@ -262,6 +288,7 @@ function startEdit(r) {
     const legs = wps.slice(1).map((p, i) => [llOf(wps[i]), llOf(p)]);
     draft = { name: r.name, wps, legs, cps: JSON.parse(JSON.stringify(r.cps)) };
   } else draft = { name: '', wps: [], legs: [], cps: [] };
+  draft.pend = draft.legs.map(() => false);
   editing = { routeId: r ? r.id : null, draft, mode: 'line', history: [], follow: store.get('mgps.followTrails', true) };
   closePanels();
   setFollow(false);
@@ -314,22 +341,55 @@ $('followTrails').addEventListener('click', () => {
 /* --- 道のデータの読み込みと候補表示 --- */
 let trailStatus = '';
 let trailTimer = null;
-async function ensureTrails() {
-  if (!editing || !editing.follow) { trailStatus = ''; renderEditInfo(); return; }
-  if (map.getZoom() < TRAIL_MIN_ZOOM) { trailStatus = '道のデータ：地図を拡大すると読み込みます'; renderEditInfo(); renderCandidates(); return; }
-  const b = map.getBounds().pad(0.5);
-  const sb = { s: b.getSouth(), w: b.getWest(), n: b.getNorth(), e: b.getEast() };
-  if (trailsCover(sb)) { trailStatus = '道のデータ：読み込み済み'; renderEditInfo(); renderCandidates(); return; }
-  trailStatus = '道のデータ：読み込み中…'; renderEditInfo();
-  try {
+const boundsObj = (b) => ({ s: b.getSouth(), w: b.getWest(), n: b.getNorth(), e: b.getEast() });
+// 範囲の道のデータを読み込む（別の範囲を読み込み中なら、終わってから読み込む）
+async function loadArea(b) {
+  for (let tries = 0; tries < 3 && !trailsCover(boundsObj(b)); tries++) {
+    trailStatus = '道のデータ：読み込み中…（数秒〜十数秒かかります）'; renderEditInfo();
     await loadTrails(b);
-    map.attributionControl.addAttribution('道データ &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>');
+  }
+  map.attributionControl.addAttribution('道データ &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>');
+}
+async function runTrailLoad(b) {
+  try {
+    await loadArea(b);
     trailStatus = '道のデータ：読み込み済み';
+    reroutePending();
   } catch {
     trailStatus = navigator.onLine === false ? '道のデータ：圏外のため直線で結びます' : '道のデータ：取得できませんでした（直線で結びます）';
   }
   renderEditInfo();
   renderCandidates();
+}
+async function ensureTrails() {
+  if (!editing || !editing.follow) { trailStatus = ''; renderEditInfo(); return; }
+  if (map.getZoom() < TRAIL_MIN_ZOOM) { trailStatus = '道のデータ：地図を拡大すると読み込みます'; renderEditInfo(); renderCandidates(); return; }
+  const b = map.getBounds().pad(0.5);
+  if (trailsCover(boundsObj(b))) { trailStatus = '道のデータ：読み込み済み'; renderEditInfo(); renderCandidates(); reroutePending(); return; }
+  await runTrailLoad(b);
+}
+// 経由点のまわりの道のデータを読み込む（地図の表示範囲の外に点がある場合など）
+function ensureTrailsFor(wps) {
+  if (!wps.length) return;
+  const b = L.latLngBounds(wps.map(llOf)).pad(0.2);
+  runTrailLoad(L.latLngBounds([b.getSouth() - 0.003, b.getWest() - 0.003], [b.getNorth() + 0.003, b.getEast() + 0.003]));
+}
+// 読み込み待ちで直線にしていた区間を、道に沿って引き直す
+function reroutePending() {
+  if (!editing || !editing.follow) return;
+  const d = editing.draft;
+  let changed = 0;
+  d.pend.forEach((p, i) => {
+    if (!p || !trailsReadyFor(d.wps[i], d.wps[i + 1])) return;
+    setLeg(i, d.wps[i], d.wps[i + 1]);
+    if (!d.pend[i]) changed++;
+  });
+  editing.waitCount = 0;
+  if (changed) {
+    const straight = editing.straightCount; editing.straightCount = 0;
+    renderEdit();
+    toast(straight ? `${changed}区間を引き直しました（${straight}区間は近くに道がなく直線のままです）` : `${changed}区間を道に沿った線に引き直しました`);
+  }
 }
 map.on('moveend', () => {
   if (!editing) return;
@@ -374,7 +434,9 @@ const midIcon = L.divIcon({ className: '', html: '<div class="v-mid">+</div>', i
 function renderEditInfo() {
   if (!editing) return;
   const d = editing.draft;
+  const waiting = d.pend.filter(Boolean).length;
   $('editInfo').innerHTML = `距離 ${fmtDist(routeDistance(flattenLegs(d)))} ・ 点 ${d.wps.length} ・ チェックポイント ${d.cps.length}` +
+    (waiting ? `<br><span class="small">⏳ ${waiting}区間は道のデータ待ち（仮の直線・点線）</span>` : '') +
     (trailStatus ? `<br><span class="small">${escapeHtml(trailStatus)}</span>` : '');
 }
 
@@ -383,6 +445,10 @@ function renderEdit() {
   const d = editing.draft;
   editLayer.clearLayers();
   drawRouteInto(editLayer, { name: d.name, points: flattenLegs(d) });
+  // 道のデータ待ちの区間は点線で示す
+  d.legs.forEach((leg, i) => {
+    if (d.pend[i]) L.polyline(leg, { color: '#fff', weight: 4, dashArray: '4 8', interactive: false }).addTo(editLayer);
+  });
   const last = d.wps.length - 1;
   d.wps.forEach((p, i) => {
     const m = L.marker([p.lat, p.lon], {
@@ -448,6 +514,7 @@ $('editSave').addEventListener('click', () => {
   r.points = flattenLegs(d);
   r.wps = d.wps;
   r.legs = d.legs;
+  if (d.pend.some(Boolean)) toast('一部の区間は道のデータが読み込めず直線のままです');
   r.cps = d.cps;
   saveRoutes();
   endEdit();
