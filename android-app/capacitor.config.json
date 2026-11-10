@@ -1,0 +1,15 @@
+{
+  "appId": "io.github.arttestillit.mountaingps",
+  "appName": "山GPS",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_tracking",
+      "iconColor": "#1f5130"
+    }
+  }
+}
