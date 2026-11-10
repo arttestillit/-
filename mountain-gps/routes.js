@@ -320,7 +320,7 @@ function setMode(mode) {
   $('modeCp').classList.toggle('active', mode === 'cp');
   $('editHint').textContent = mode === 'line'
     ? '通る場所を順にタップ → 道に沿って結びます。◇分岐・▲山頂もタップで選べます。□ドラッグで移動／タップで削除、＋で間に追加'
-    : '◇分岐・▲山頂・🏠小屋・👁展望地をタップ → 名前入りで追加。地図の好きな場所にも置けます';
+    : '◇分岐・▲山頂をタップ → 種類・名前入りで追加。地図の好きな場所にも置けます';
   renderCandidates();
 }
 $('modeLine').addEventListener('click', () => { setMode('line'); renderEdit(); });
@@ -348,15 +348,16 @@ async function loadArea(b) {
     trailStatus = '道のデータ：読み込み中…（数秒〜十数秒かかります）'; renderEditInfo();
     await loadTrails(b);
   }
-  map.attributionControl.addAttribution('道データ &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>');
 }
 async function runTrailLoad(b) {
   try {
     await loadArea(b);
     trailStatus = '道のデータ：読み込み済み';
     reroutePending();
-  } catch {
-    trailStatus = navigator.onLine === false ? '道のデータ：圏外のため直線で結びます' : '道のデータ：取得できませんでした（直線で結びます）';
+  } catch (e) {
+    trailStatus = /広すぎ/.test(e && e.message) ? '道のデータ：もう少し拡大してください'
+      : navigator.onLine === false ? '道のデータ：圏外です（地図をダウンロードした範囲なら使えます）'
+      : '道のデータ：取得できませんでした（直線で結びます）';
   }
   renderEditInfo();
   renderCandidates();
@@ -364,15 +365,21 @@ async function runTrailLoad(b) {
 async function ensureTrails() {
   if (!editing || !editing.follow) { trailStatus = ''; renderEditInfo(); return; }
   if (map.getZoom() < TRAIL_MIN_ZOOM) { trailStatus = '道のデータ：地図を拡大すると読み込みます'; renderEditInfo(); renderCandidates(); return; }
-  const b = map.getBounds().pad(0.5);
+  const b = map.getBounds().pad(0.15);
   if (trailsCover(boundsObj(b))) { trailStatus = '道のデータ：読み込み済み'; renderEditInfo(); renderCandidates(); reroutePending(); return; }
   await runTrailLoad(b);
 }
 // 経由点のまわりの道のデータを読み込む（地図の表示範囲の外に点がある場合など）
-function ensureTrailsFor(wps) {
-  if (!wps.length) return;
-  const b = L.latLngBounds(wps.map(llOf)).pad(0.2);
-  runTrailLoad(L.latLngBounds([b.getSouth() - 0.003, b.getWest() - 0.003], [b.getNorth() + 0.003, b.getEast() + 0.003]));
+async function ensureTrailsFor(wps) {
+  // 道のデータ待ちの区間ごとに、その周りだけ読み込む
+  const d = editing && editing.draft;
+  if (!d) return;
+  for (let i = 0; i < d.pend.length; i++) {
+    if (!d.pend[i]) continue;
+    const a = d.wps[i], b = d.wps[i + 1];
+    await runTrailLoad(L.latLngBounds([Math.min(a.lat, b.lat) - 0.003, Math.min(a.lon, b.lon) - 0.003],
+      [Math.max(a.lat, b.lat) + 0.003, Math.max(a.lon, b.lon) + 0.003]));
+  }
 }
 // 読み込み待ちで直線にしていた区間を、道に沿って引き直す
 function reroutePending() {
@@ -403,8 +410,8 @@ function renderCandidates() {
   candLayer.clearLayers();
   if (!editing || map.getZoom() < CAND_MIN_ZOOM) return;
   const b = map.getBounds().pad(0.2);
-  const junctions = trailJunctions(b);
-  if (junctions.length > 600) return;   // 多すぎる場合は拡大してもらう
+  let junctions = trailJunctions(b);
+  if (junctions.length > 600) junctions = [];   // 町なかなどで多すぎる場合は分岐点を出さない（拡大すると出る）
   for (const j of junctions) {
     L.marker([j.lat, j.lon], {
       icon: L.divIcon({ className: '', html: '<div class="cand-junction"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),

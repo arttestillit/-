@@ -7,7 +7,7 @@
  *  - 軌跡は localStorage に保存、GPX で書き出し/読み込み
  */
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 const TILE_CACHE = 'mgps-tiles-v1';
 const MAX_TILES = 20000;          // 1回のダウンロード上限
 const DL_CONCURRENCY = 6;
@@ -327,6 +327,21 @@ async function startDownload() {
   }
   await Promise.all(Array.from({ length: DL_CONCURRENCY }, worker));
   update();
+  // ルート作成用の道のデータ（国土地理院ベクトルタイル）も一緒に保存（圏外でもルートを作れる）
+  if (!dlAbort && typeof trailTileUrls === 'function') {
+    const urls = trailTileUrls({ s: p.bounds.south, w: p.bounds.west, n: p.bounds.north, e: p.bounds.east });
+    if (urls.length <= 2000) {
+      $('dlStatus').textContent += '　道のデータを保存中…';
+      let j = 0;
+      await Promise.all(Array.from({ length: DL_CONCURRENCY }, async () => {
+        while (j < urls.length && !dlAbort) {
+          const u = urls[j++];
+          try { if (!(await cache.match(u))) { const r = await fetch(u, { mode: 'cors', credentials: 'omit' }); if (r.ok) await cache.put(u, r); } } catch {}
+        }
+      }));
+      update();
+    }
+  }
 
   const name = $('dlName').value.trim() || `エリア ${fmtDate(Date.now())}`;
   if (!dlAbort) {
