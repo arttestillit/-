@@ -99,6 +99,7 @@ input[type=text].bad{border-color:var(--warn);background:color-mix(in srgb,var(-
 .pairs button{min-height:44px;padding:6px 12px;font-size:.95rem;background:var(--secondary);color:var(--secondary-text);flex:0 0 auto}
 .score{font-weight:800;font-size:1.2rem;font-variant-numeric:tabular-nums}
 .center{text-align:center}
+.btn.back{width:auto;padding-inline:20px;white-space:nowrap}
 .wolfrow{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 6px;margin:6px 0 2px;line-height:1.2}
 .win{font-size:2rem;font-weight:800;text-align:center}
 .win.c{color:var(--citizen)}.win.w{color:var(--wolf)}.win.d{color:var(--muted)}
@@ -410,7 +411,7 @@ rules(){
     <p>・ヒントがくわしすぎると、ウルフにばれちゃうよ</p>
     <p>・人{ひと}の悪口{わるくち}は言{い}わない。楽{たの}しく遊{あそ}ぼう！</p>
   </div>
-  <div class="bottom"><button class="btn" data-act="back">もどる</button></div>`;
+  <div class="bottom"><button class="btn s2" data-act="back">◀ 戻{もど}る</button></div>`;
 },
 
 players(){
@@ -432,7 +433,7 @@ players(){
     <div class="names" id="namesList">${namesHtml()}</div>
   </div>
   <div class="bottom row">
-    <button class="btn s2 fit" data-act="toTitle" style="width:auto" aria-label="もどる">◀</button>
+    <button class="btn s2 fit back" data-act="toTitle">◀ 戻{もど}る</button>
     <button class="btn" data-act="toSettings">次{つぎ}へ ▶</button>
   </div>`;
 },
@@ -482,7 +483,7 @@ settings(){
     <p class="hint" id="whint">${wolfHint()}</p>
   </div>
   <div class="bottom row">
-    <button class="btn s2 fit" data-act="toPlayers" style="width:auto" aria-label="もどる">◀</button>
+    <button class="btn s2 fit back" data-act="toPlayers">◀ 戻{もど}る</button>
     <button class="btn" data-act="start">🎮 スタート！</button>
   </div>`;
 },
@@ -504,7 +505,7 @@ custom(){
       <li><span>${esc(p[0])} ／ ${esc(p[1])}</span><button data-act="delPair" data-i="${i}">消{け}す</button></li>`).join("")}</ul>`
       : `<p class="sub">まだないよ</p>`}
   </div>
-  <div class="bottom"><button class="btn s2" data-act="toSettings">◀ もどる</button></div>`;
+  <div class="bottom"><button class="btn s2" data-act="toSettings">◀ 戻{もど}る</button></div>`;
 },
 
 pass(){
