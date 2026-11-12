@@ -362,7 +362,7 @@ function startGame(){
   const wolfIdx = shuffle(names.map((_,i)=>i)).slice(0, wolves);
   S.game = { names, theme:pick.theme, wolfIdx,
     citizenWord: flip ? pick.pair[1] : pick.pair[0], wolfWord: flip ? pick.pair[0] : pick.pair[1],
-    turn:0, shown:false, accused:null, revealed:false, reversal:null, scored:false, more:false };
+    turn:0, shown:false, picks:[], none:false, multi: S.wolvesRandom || wolves > 1, revealed:false, reversal:null, scored:false, more:false };
   names.forEach(n => { if(!(n in S.scores)) S.scores[n] = 0; });
   go("pass");
 }
@@ -370,9 +370,11 @@ function startGame(){
 function outcome(g){
   const W = g.wolfIdx.length, N = g.names.length;
   if(W === N) return "allwolf";
-  if(g.accused === -1) return W === 0 ? "nowolf-right" : "missed-none";
+  if(g.none) return W === 0 ? "nowolf-right" : "missed-none";
   if(W === 0) return "nowolf-wrong";
-  return g.wolfIdx.includes(g.accused) ? "caught" : "missed";
+  const hit = g.picks.filter(i => g.wolfIdx.includes(i)).length;
+  if(hit === W && g.picks.length === W) return "caught";
+  return hit === g.picks.length ? "partial" : "missed";
 }
 
 // ---------- 画面 ----------
@@ -563,21 +565,24 @@ vote(){
   return `
   <div class="emoji">👉</div>
   <h2>せーので指{ゆび}さそう！</h2>
-  <p class="center">「ウルフだと思{おも}う人{ひと}」をみんなでいっしょに指{ゆび}さして、いちばん多{おお}かった人{ひと}をタッチ！</p>
+  ${g.multi
+    ? `<p class="center">「ウルフだと思{おも}う人{ひと}」をみんなで話{はな}し合{あ}って、<b>全員{ぜんいん}</b>タッチしてね！<br>もう一度{いちど}タッチすると取{と}り消{け}せるよ。ウルフが何人{なんにん}いるかは、ひみつ！</p>`
+    : `<p class="center">「ウルフだと思{おも}う人{ひと}」をみんなでいっしょに指{ゆび}さして、いちばん多{おお}かった人{ひと}をタッチ！</p>`}
   <div class="players" style="margin-top:12px">
-    ${g.names.map((n,i)=>`<button data-act="accuse" data-i="${i}" class="${g.accused===i?"sel":""}">${esc(n)}</button>`).join("")}
+    ${g.names.map((n,i)=>`<button data-act="accuse" data-i="${i}" class="${g.picks.includes(i)?"sel":""}" aria-pressed="${g.picks.includes(i)}">${esc(n)}</button>`).join("")}
   </div>
-  <button class="none ${g.accused===-1?"sel":""}" data-act="accuse" data-i="-1">🙅 ウルフはいないと思{おも}う</button>
-  <p class="sub" style="margin-top:10px">同{おな}じ数{かず}のときは、その人{ひと}たちでもう一度{いちど}指{ゆび}さそう</p>
-  <div class="bottom"><button class="btn" data-act="judge" ${g.accused==null?"disabled":""}>結果{けっか}発表{はっぴょう}！</button></div>`;
+  <button class="none ${g.none?"sel":""}" aria-pressed="${g.none}" data-act="accuse" data-i="-1">🙅 ウルフはいないと思{おも}う</button>
+  ${g.multi ? `<p class="sub" style="margin-top:10px">選{えら}んだ人{ひと}：${nin(g.picks.length)}</p>`
+    : `<p class="sub" style="margin-top:10px">同{おな}じ数{かず}のときは、その人{ひと}たちでもう一度{いちど}指{ゆび}さそう</p>`}
+  <div class="bottom"><button class="btn" data-act="judge" ${g.picks.length===0 && !g.none ? "disabled":""}>結果{けっか}発表{はっぴょう}！</button></div>`;
 },
 
 result(){
   const g = S.game, kind = outcome(g);
-  const accName = g.accused >= 0 ? esc(g.names[g.accused]) : "";
+  const accName = g.picks.map(i => esc(g.names[i])).join("、");
   if(!g.revealed){
     return `
-    <h2>${g.accused===-1 ? "「ウルフはいない」" : accName+"は…"}</h2>
+    <h2>${g.none ? "「ウルフはいない」" : accName+"は…"}</h2>
     <div class="cover" style="padding:64px 16px">ドキドキ…</div>
     <div class="bottom"><button class="btn" data-act="reveal">開{あ}ける！</button></div>`;
   }
@@ -609,7 +614,10 @@ result(){
     case "caught": res = g.reversal===true
       ? ["w","ウルフの勝{か}ち！","🐺🎉","ウルフがみんなの言葉{ことば}を当{あ}てた！ ぎゃくてん！"]
       : ["c","みんなの勝{か}ち！","🙌🎉","ウルフを見{み}つけたよ！"]; break;
-    case "missed": res = ["w","ウルフの勝{か}ち！","🐺🎉",`${accName}はウルフじゃなかった！`]; break;
+    case "missed": {
+      const wrong = g.picks.filter(i => !g.wolfIdx.includes(i)).map(i => esc(g.names[i])).join("、");
+      res = ["w","ウルフの勝{か}ち！","🐺🎉",`${wrong}はウルフじゃなかった！`]; break; }
+    case "partial": res = ["w","ウルフの勝{か}ち！","🐺🎉","ウルフを全員{ぜんいん}は見{み}つけられなかったよ！"]; break;
     case "missed-none": res = ["w","ウルフの勝{か}ち！","🐺🎉","ほんとうはウルフがいたよ！"]; break;
     case "nowolf-right": res = ["c","みんなの勝{か}ち！","🙌🎉","ウルフはいなかったよ！ せいかい！"]; break;
     case "nowolf-wrong": res = ["d","引{ひ}き分{わ}け","😅",`${accName}はウルフじゃなかったよ。ほんとうはウルフはいなかったんだ`]; break;
@@ -753,7 +761,15 @@ app.addEventListener("click", e => {
       b.innerHTML = R(g.paused ? "▶ 続{つづ}ける" : "⏸ 止{と}める"); break;
     case "plus": g.left += 30; g.total = Math.max(g.total, g.left); g.endAt = Date.now() + g.left*1000; paintTimer(); break;
     case "toVote": go("vote"); break;
-    case "accuse": g.accused = +b.dataset.i; render(); break;
+    case "accuse": {
+      const i = +b.dataset.i;
+      if(i === -1){ g.none = !g.none; if(g.none) g.picks = []; }
+      else {
+        g.none = false;
+        if(!g.multi) g.picks = [i];
+        else g.picks = g.picks.includes(i) ? g.picks.filter(x => x !== i) : [...g.picks, i];
+      }
+      render(); break; }
     case "judge": g.revealed = false; go("result"); break;
     case "reveal": g.revealed = true; beep(600,.12,2); render(); window.scrollTo(0,0); break;
     case "rev": g.reversal = b.dataset.v === "1" ? "check" : false; render(); break;
