@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ワードウルフ</title>
+<style>
+:root{
+  --bg:#fff8ec;--card:#ffffff;--text:#2b2a33;--muted:#6b6878;--border:#ecdcc4;
+  --primary:#ff7a45;--primary-text:#fff;--secondary:#ffe7d6;--secondary-text:#8a3a12;
+  --citizen:#2f9e6e;--wolf:#6a4bd8;--warn:#e0464e;--chip:#fff1e2;--shadow:0 6px 0 rgba(0,0,0,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1c1a24;--card:#2a2735;--text:#f3f0fa;--muted:#b0aac2;--border:#3e3a4d;
+    --primary:#ff8a5b;--primary-text:#1c1a24;--secondary:#3b3346;--secondary-text:#ffd2bd;
+    --citizen:#4fd39a;--wolf:#a58bff;--warn:#ff6b72;--chip:#353041;--shadow:0 6px 0 rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1c1a24;--card:#2a2735;--text:#f3f0fa;--muted:#b0aac2;--border:#3e3a4d;
+  --primary:#ff8a5b;--primary-text:#1c1a24;--secondary:#3b3346;--secondary-text:#ffd2bd;
+  --citizen:#4fd39a;--wolf:#a58bff;--warn:#ff6b72;--chip:#353041;--shadow:0 6px 0 rgba(0,0,0,.3);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);
+  font-family:"Hiragino Maru Gothic ProN","BIZ UDPGothic","M PLUS Rounded 1c","Rounded Mplus 1c",system-ui,sans-serif;
+  font-size:18px;line-height:1.6}
+main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:2rem;margin:.4em 0 .1em;text-align:center;letter-spacing:.05em}
+h2{font-size:1.35rem;margin:.2em 0 .6em;text-align:center}
+p{margin:.4em 0}
+.sub{color:var(--muted);text-align:center;font-size:.95rem}
+.card{background:var(--card);border:2px solid var(--border);border-radius:20px;padding:18px;margin:14px 0;box-shadow:var(--shadow)}
+button{font:inherit;cursor:pointer;border:none;border-radius:16px;padding:14px 18px;font-weight:700;
+  transition:transform .08s ease}
+button:active{transform:translateY(3px)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.btn{display:block;width:100%;background:var(--primary);color:var(--primary-text);font-size:1.25rem;
+  margin:10px 0;box-shadow:0 5px 0 rgba(0,0,0,.18)}
+.btn.sub2{background:var(--secondary);color:var(--secondary-text);font-size:1.05rem}
+.row{display:flex;gap:10px;align-items:center}
+.row > *{flex:1}
+.label{font-weight:700;margin-bottom:6px}
+.stepper{display:flex;align-items:center;justify-content:center;gap:14px}
+.stepper button{width:56px;height:56px;padding:0;font-size:1.6rem;background:var(--secondary);color:var(--secondary-text)}
+.stepper .num{font-size:2rem;font-weight:800;min-width:3.2em;text-align:center}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--chip);color:var(--text);border:2px solid var(--border);padding:8px 14px;border-radius:999px;font-size:1rem}
+.chip.on{background:var(--primary);color:var(--primary-text);border-color:var(--primary)}
+input[type=text]{font:inherit;width:100%;padding:10px 12px;border-radius:12px;border:2px solid var(--border);
+  background:var(--bg);color:var(--text)}
+.names{display:grid;gap:8px}
+.names .row span{flex:0 0 2em;font-weight:800;text-align:center;color:var(--muted)}
+.toggle{display:flex;align-items:center;gap:10px;font-size:1rem}
+.toggle input{width:26px;height:26px;accent-color:var(--primary)}
+.big{font-size:2.6rem;font-weight:800;text-align:center;margin:.2em 0;word-break:keep-all;overflow-wrap:anywhere}
+.who{font-size:1.8rem;font-weight:800;text-align:center;color:var(--primary)}
+.emoji{font-size:4rem;text-align:center;line-height:1.2}
+.timer{font-size:5rem;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.timer.low{color:var(--warn);animation:pulse 1s infinite}
+@keyframes pulse{50%{transform:scale(1.06)}}
+.bar{height:14px;background:var(--chip);border-radius:999px;overflow:hidden;border:2px solid var(--border)}
+.bar > div{height:100%;background:var(--primary);transition:width 1s linear}
+.players{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.players button{background:var(--chip);color:var(--text);border:3px solid var(--border);font-size:1.15rem;padding:16px 8px}
+.players button.sel{border-color:var(--primary);background:var(--secondary)}
+.tag{display:inline-block;padding:2px 12px;border-radius:999px;color:#fff;font-weight:800;font-size:.95rem}
+.tag.c{background:var(--citizen)}.tag.w{background:var(--wolf)}
+.list{list-style:none;padding:0;margin:0}
+.list li{display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:2px dashed var(--border)}
+.list li:last-child{border-bottom:none}
+.hint{background:var(--chip);border-radius:14px;padding:10px 14px;font-size:.98rem}
+.rules ol{padding-left:1.3em;margin:.3em 0}
+.rules li{margin:.35em 0}
+.cover{background:repeating-linear-gradient(45deg,var(--secondary),var(--secondary) 14px,var(--chip) 14px,var(--chip) 28px);
+  border-radius:20px;padding:40px 16px;text-align:center;font-weight:800;font-size:1.3rem;color:var(--secondary-text)}
+.pairs li{font-size:1rem}
+.pairs button{padding:6px 12px;font-size:.9rem;background:var(--secondary);color:var(--secondary-text)}
+.score{font-weight:800;font-size:1.2rem}
+.center{text-align:center}
+.hidden{display:none}
+.win{font-size:2rem;font-weight:800;text-align:center}
+.win.c{color:var(--citizen)}.win.w{color:var(--wolf)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+
+<script>
+(() => {
+// ---------- おだい（ことばのペア） ----------
+const THEMES = {
+  たべもの: { icon:"🍙", pairs:[
+    ["カレーライス","ハヤシライス"],["りんご","なし"],["ラーメン","うどん"],["おにぎり","おすし"],
+    ["ケーキ","プリン"],["いちご","さくらんぼ"],["パン","ごはん"],["アイスクリーム","かきごおり"],
+    ["ハンバーガー","ホットドッグ"],["ピザ","グラタン"],["チョコレート","クッキー"],["みかん","バナナ"],
+    ["からあげ","とんかつ"],["たまごやき","ゆでたまご"],["ぎゅうにゅう","ジュース"]]},
+  どうぶつ: { icon:"🐶", pairs:[
+    ["いぬ","ねこ"],["ライオン","トラ"],["パンダ","コアラ"],["うさぎ","ハムスター"],["ぞう","キリン"],
+    ["ペンギン","アザラシ"],["イルカ","クジラ"],["カブトムシ","クワガタ"],["カラス","ハト"],
+    ["さる","ゴリラ"],["カエル","カメ"],["ちょうちょ","とんぼ"]]},
+  がっこう: { icon:"🏫", pairs:[
+    ["たいいく","おんがく"],["えんぴつ","ボールペン"],["けしゴム","のり"],["ランドセル","リュック"],
+    ["きゅうしょく","おべんとう"],["こうてい","たいいくかん"],["こくばん","ホワイトボード"],
+    ["うんどうかい","えんそく"],["じょうぎ","コンパス"],["ほけんしつ","としょしつ"],["しゅくだい","テスト"]]},
+  あそび: { icon:"⚽", pairs:[
+    ["おにごっこ","かくれんぼ"],["サッカー","バスケットボール"],["ブランコ","すべりだい"],["なわとび","フラフープ"],
+    ["トランプ","かるた"],["プール","うみ"],["やきゅう","ドッジボール"],["ゲーム","マンガ"],
+    ["つみき","ブロック"],["シャボンだま","ふうせん"]]},
+  くらし: { icon:"🏠", pairs:[
+    ["なつやすみ","ふゆやすみ"],["クリスマス","おしょうがつ"],["かさ","レインコート"],["でんしゃ","バス"],
+    ["ゆうえんち","どうぶつえん"],["はみがき","おふろ"],["テレビ","タブレット"],["ひこうき","ヘリコプター"],
+    ["ゆき","あめ"],["おまつり","はなびたいかい"],["たんじょうび","こどものひ"],["じてんしゃ","いちりんしゃ"]]},
+};
+const CUSTOM = "じぶんで";
+
+// ---------- ほぞん（ブラウザに名前などを覚える） ----------
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("ww_"+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("ww_"+k, JSON.stringify(v)); }catch(e){} },
+};
+
+// ---------- じょうたい ----------
+const S = {
+  screen: "title",
+  count: store.get("count", 4),
+  names: store.get("names", []),
+  themes: store.get("themes", Object.keys(THEMES)),
+  custom: store.get("custom", []),
+  minutes: store.get("minutes", 3),
+  easy: store.get("easy", true),
+  wolves: 1,
+  scores: {},
+  game: null,
+};
+const app = document.getElementById("app");
+
+// ---------- おと ----------
+let ac = null;
+function beep(freq=660, dur=.15, times=1){
+  try{
+    ac = ac || new (window.AudioContext||window.webkitAudioContext)();
+    for(let i=0;i<times;i++){
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + i*(dur+.08);
+      o.type="triangle"; o.frequency.value=freq; o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.3,t+.02);
+      g.gain.exponentialRampToValueAtTime(.0001,t+dur); o.start(t); o.stop(t+dur+.02);
+    }
+  }catch(e){}
+}
+
+// ---------- べんり ----------
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const shuffle = a => { a=[...a]; for(let i=a.length-1;i>0;i--){ const j=Math.random()*(i+1)|0; [a[i],a[j]]=[a[j],a[i]]; } return a; };
+const playerNames = () => Array.from({length:S.count}, (_,i) => (S.names[i]||"").trim() || `${i+1}ばんさん`);
+const maxWolves = () => S.count >= 6 ? 2 : 1;
+let timerId = null;
+function stopTimer(){ if(timerId){ clearInterval(timerId); timerId=null; } }
+function go(screen){ stopTimer(); S.screen = screen; render(); window.scrollTo(0,0); }
+
+function allPairs(){
+  const out = [];
+  for(const t of S.themes){
+    if(t === CUSTOM) S.custom.forEach(p => out.push({theme:CUSTOM, pair:p}));
+    else if(THEMES[t]) THEMES[t].pairs.forEach(p => out.push({theme:t, pair:p}));
+  }
+  return out;
+}
+
+// ---------- ゲームをはじめる ----------
+let lastPairKey = null;
+function startGame(){
+  const pool = allPairs();
+  if(!pool.length){ alert("おだいの しゅるいを 1つ いじょう えらんでね"); return; }
+  let pick = pool[Math.random()*pool.length|0];
+  if(pool.length > 1){ let n=0; while(pick.pair.join("/")===lastPairKey && n++<10) pick = pool[Math.random()*pool.length|0]; }
+  lastPairKey = pick.pair.join("/");
+  const flip = Math.random() < .5;
+  const citizenWord = flip ? pick.pair[1] : pick.pair[0];
+  const wolfWord    = flip ? pick.pair[0] : pick.pair[1];
+  const names = playerNames();
+  S.wolves = Math.min(S.wolves, maxWolves());
+  const wolfIdx = shuffle(names.map((_,i)=>i)).slice(0, S.wolves);
+  S.game = { names, citizenWord, wolfWord, theme:pick.theme, wolfIdx, turn:0, shown:false,
+             accused:null, revealed:false, reversal:null, scored:false };
+  names.forEach(n => { if(!(n in S.scores)) S.scores[n] = 0; });
+  go("pass");
+}
+
+// ---------- がめん ----------
+const screens = {
+
+title(){
+  return `
+  <div class="emoji">🐺</div>
+  <h1>ワードウルフ</h1>
+  <p class="sub">みんなと ちがう ことばの ひと（ウルフ）を<br>はなしあいで 見つけよう！</p>
+  <div class="card">
+    <div class="label">なんにんで あそぶ？</div>
+    <div class="stepper">
+      <button data-act="count" data-d="-1" aria-label="へらす">−</button>
+      <div class="num">${S.count}<small style="font-size:1rem">にん</small></div>
+      <button data-act="count" data-d="1" aria-label="ふやす">＋</button>
+    </div>
+    <p class="sub">3〜10にん</p>
+  </div>
+  <div class="card">
+    <div class="label">なまえ（かかなくても OK）</div>
+    <div class="names">
+      ${Array.from({length:S.count},(_,i)=>`
+        <div class="row"><span>${i+1}</span>
+        <input type="text" maxlength="10" data-name="${i}" placeholder="${i+1}ばんさん" value="${esc(S.names[i]||"")}"></div>`).join("")}
+    </div>
+  </div>
+  <button class="btn" data-act="toSettings">つぎへ ▶</button>
+  <button class="btn sub2" data-act="toRules">📖 あそびかた</button>
+  `;
+},
+
+rules(){
+  return `
+  <h2>📖 あそびかた</h2>
+  <div class="card rules">
+    <ol>
+      <li>じゅんばんに がめんを 見て、じぶんの <b>ことば</b> を おぼえるよ。<br>ほかの ひとに 見せちゃ ダメ！</li>
+      <li>みんなは おなじ ことば。でも <b>ウルフ</b> だけ すこし ちがう ことば だよ。<br>（れい：みんな「いぬ」、ウルフ「ねこ」）</li>
+      <li>ことばを <b>そのまま いわないで</b>、ヒントを だしあって はなそう。<br>「どこに いる？」「すき？」「どんな いろ？」など</li>
+      <li>じかんが きたら、せーので「ウルフだと おもう ひと」を ゆびさそう！</li>
+      <li>ウルフを 見つけたら <span class="tag c">みんなの かち</span><br>まちがえたら <span class="tag w">ウルフの かち</span></li>
+      <li>見つかった ウルフは、みんなの ことばを あてたら <b>ぎゃくてん かち</b>！</li>
+    </ol>
+  </div>
+  <div class="card">
+    <div class="label">💡 じょうずに あそぶ コツ</div>
+    <p>・じぶんが ウルフかも？と おもったら、みんなに あわせて はなそう</p>
+    <p>・ヒントが くわしすぎると ウルフに ばれちゃうよ</p>
+    <p>・ひとの わるくちは いわない。たのしく あそぼう！</p>
+  </div>
+  <button class="btn" data-act="back">もどる</button>
+  `;
+},
+
+settings(){
+  const allT = [...Object.keys(THEMES), CUSTOM];
+  return `
+  <h2>⚙️ せってい</h2>
+  <div class="card">
+    <div class="label">おだいの しゅるい</div>
+    <div class="chips">
+      ${allT.map(t=>`<button class="chip ${S.themes.includes(t)?"on":""}" data-act="theme" data-t="${t}">
+        ${t===CUSTOM?"✏️":THEMES[t].icon} ${t}${t===CUSTOM?`（${S.custom.length}）`:""}</button>`).join("")}
+    </div>
+    ${S.themes.includes(CUSTOM) ? `<button class="btn sub2" data-act="toCustom" style="margin-top:12px">✏️ じぶんで おだいを つくる</button>` : ""}
+  </div>
+  <div class="card">
+    <div class="label">はなしあいの じかん</div>
+    <div class="chips">
+      ${[1,2,3,4,5].map(m=>`<button class="chip ${S.minutes===m?"on":""}" data-act="min" data-m="${m}">${m}ふん</button>`).join("")}
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">ウルフの かず</div>
+    <div class="chips">
+      ${[1,2].map(n=>`<button class="chip ${S.wolves===n?"on":""}" data-act="wolves" data-n="${n}" ${n>maxWolves()?"disabled":""}>${n}にん</button>`).join("")}
+    </div>
+    <p class="sub" style="text-align:left">2にんは 6にん いじょうの とき えらべるよ</p>
+  </div>
+  <div class="card">
+    <label class="toggle"><input type="checkbox" data-act="easy" ${S.easy?"checked":""}>
+      <span><b>かんたんモード</b><br><small>じぶんが ウルフか どうか、がめんに でるよ（はじめての ひとに おすすめ）</small></span></label>
+  </div>
+  <button class="btn" data-act="start">🎮 ゲーム スタート！</button>
+  <button class="btn sub2" data-act="toTitle">◀ もどる</button>
+  `;
+},
+
+custom(){
+  return `
+  <h2>✏️ じぶんで おだいを つくる</h2>
+  <div class="card">
+    <p class="hint">にている ことばを 2つ いれてね。<br>どちらが ウルフに なるかは ランダムだよ。</p>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="cA" maxlength="14" placeholder="れい：すいか">
+      <input type="text" id="cB" maxlength="14" placeholder="れい：メロン">
+    </div>
+    <button class="btn" data-act="addPair">ついか する</button>
+  </div>
+  <div class="card">
+    <div class="label">つくった おだい（${S.custom.length}こ）</div>
+    ${S.custom.length ? `<ul class="list pairs">${S.custom.map((p,i)=>`
+      <li><span>${esc(p[0])} ／ ${esc(p[1])}</span><button data-act="delPair" data-i="${i}">けす</button></li>`).join("")}</ul>`
+      : `<p class="sub">まだ ないよ</p>`}
+  </div>
+  <button class="btn sub2" data-act="toSettings">◀ せっていに もどる</button>
+  `;
+},
+
+pass(){
+  const g = S.game, name = g.names[g.turn];
+  if(!g.shown){
+    return `
+    <p class="sub">${g.turn+1} / ${g.names.length} にんめ</p>
+    <div class="who">${esc(name)}</div>
+    <p class="center">に スマホを わたしてね 📱</p>
+    <div class="cover">ほかの ひとは<br>見ないでね 🙈</div>
+    <button class="btn" data-act="show">わたしは ${esc(name)}！<br>ことばを 見る</button>
+    `;
+  }
+  const isWolf = g.wolfIdx.includes(g.turn);
+  const word = isWolf ? g.wolfWord : g.citizenWord;
+  return `
+  <p class="sub">${esc(name)} の ことばは…</p>
+  <div class="card">
+    <div class="big">${esc(word)}</div>
+    ${S.easy ? `<p class="center" style="margin-top:10px">${isWolf
+        ? `<span class="tag w">🐺 あなたは ウルフ</span><br><small>みんなに ばれないように しよう！</small>`
+        : `<span class="tag c">🙂 あなたは みんなの なかま</span><br><small>ウルフを 見つけよう！</small>`}</p>`
+      : `<p class="sub">じぶんが ウルフ かどうかは ひみつ。<br>はなしながら かんがえよう！</p>`}
+  </div>
+  <button class="btn" data-act="hide">おぼえた！ とじる</button>
+  `;
+},
+
+ready(){
+  return `
+  <div class="emoji">🗣️</div>
+  <h2>みんな ことばを 見たね！</h2>
+  <div class="card">
+    <p class="center">おだいの しゅるい：<b>${S.game.theme===CUSTOM?"じぶんで つくった おだい":S.game.theme}</b></p>
+    <p class="center">ウルフは <b>${S.game.wolfIdx.length}にん</b></p>
+    <p class="hint" style="margin-top:10px">ことばを そのまま いうのは ナシ！<br>「すき？」「どこで 見る？」など ヒントで はなそう</p>
+  </div>
+  <button class="btn" data-act="talk">⏱️ はなしあい スタート（${S.minutes}ふん）</button>
+  `;
+},
+
+talk(){
+  return `
+  <h2>はなしあい ちゅう</h2>
+  <div class="timer" id="timer">--:--</div>
+  <div class="bar"><div id="bar" style="width:100%"></div></div>
+  <div class="card">
+    <div class="label">💬 しつもんの れい</div>
+    <p id="q" style="font-size:1.15rem"></p>
+    <button class="btn sub2" data-act="nextQ">べつの しつもん</button>
+  </div>
+  <div class="row">
+    <button class="btn sub2" data-act="plus">＋30びょう</button>
+    <button class="btn" data-act="toVote">おわり！</button>
+  </div>
+  `;
+},
+
+vote(){
+  const g = S.game;
+  return `
+  <div class="emoji">👉</div>
+  <h2>せーので ゆびさそう！</h2>
+  <p class="center">「ウルフだと おもう ひと」を みんなで いっしょに ゆびさしてね。<br>
+  いちばん おおく ゆびさされた ひとを タッチ！</p>
+  <div class="players" style="margin-top:14px">
+    ${g.names.map((n,i)=>`<button data-act="accuse" data-i="${i}" class="${g.accused===i?"sel":""}">${esc(n)}</button>`).join("")}
+  </div>
+  <p class="sub" style="margin-top:12px">おなじ かずの ときは、その ひとたちで もういちど ゆびさそう</p>
+  <button class="btn" data-act="judge" ${g.accused==null?"disabled":""}>けっか はっぴょう！</button>
+  `;
+},
+
+result(){
+  const g = S.game;
+  const caught = g.wolfIdx.includes(g.accused);
+  const accName = esc(g.names[g.accused]);
+  if(!g.revealed){
+    return `
+    <h2>${accName} は…</h2>
+    <div class="cover" style="padding:60px 16px">ドキドキ…</div>
+    <button class="btn" data-act="reveal">ひらく！</button>`;
+  }
+  // ウルフが見つかった → ぎゃくてんチャンス
+  if(caught && g.reversal===null){
+    return `
+    <div class="emoji">🐺</div>
+    <div class="win w">ウルフ だった！</div>
+    <div class="card">
+      <p class="center"><b>${accName}</b> の ことばは「<b>${esc(g.wolfWord)}</b>」</p>
+      <p class="hint" style="margin-top:10px">🎯 ぎゃくてん チャンス！<br>${accName}、みんなの ことばは なにか わかるかな？ こえに だして いってみよう！</p>
+    </div>
+    <div class="row">
+      <button class="btn sub2" data-act="rev" data-v="0">はずれ</button>
+      <button class="btn" data-act="rev" data-v="1">こたえを 見る</button>
+    </div>`;
+  }
+  if(caught && g.reversal==="check"){
+    return `
+    <h2>みんなの ことばは…</h2>
+    <div class="card"><div class="big">${esc(g.citizenWord)}</div></div>
+    <p class="center">${accName} の こたえは あってた？</p>
+    <div class="row">
+      <button class="btn sub2" data-act="rev2" data-v="0">はずれ</button>
+      <button class="btn" data-act="rev2" data-v="1">あたり！</button>
+    </div>`;
+  }
+  const wolfWin = !caught || g.reversal === true;
+  if(!g.scored){
+    g.scored = true;
+    g.names.forEach((n,i)=>{
+      const isW = g.wolfIdx.includes(i);
+      if(isW && wolfWin) S.scores[n] += 2;
+      if(!isW && !wolfWin) S.scores[n] += 1;
+    });
+    beep(wolfWin?440:880,.18,3);
+  }
+  const reason = !caught ? `${accName} は ウルフじゃ なかった！` :
+                 g.reversal===true ? "ウルフが みんなの ことばを あてた！ ぎゃくてん！" : "ウルフを 見つけたよ！";
+  const ranking = Object.entries(S.scores).filter(([n])=>g.names.includes(n)).sort((a,b)=>b[1]-a[1]);
+  return `
+  <div class="emoji">${wolfWin?"🐺🎉":"🙌🎉"}</div>
+  <div class="win ${wolfWin?"w":"c"}">${wolfWin?"ウルフの かち！":"みんなの かち！"}</div>
+  <p class="center">${reason}</p>
+  <div class="card">
+    <p class="center">みんなの ことば <span class="tag c">${esc(g.citizenWord)}</span></p>
+    <p class="center">ウルフの ことば <span class="tag w">${esc(g.wolfWord)}</span></p>
+    <ul class="list" style="margin-top:8px">
+      ${g.names.map((n,i)=>`<li><span>${esc(n)}</span>${g.wolfIdx.includes(i)?`<span class="tag w">🐺 ウルフ</span>`:`<span class="tag c">なかま</span>`}</li>`).join("")}
+    </ul>
+  </div>
+  <div class="card">
+    <div class="label">🏆 ポイント</div>
+    <p class="sub" style="text-align:left">みんなの かち＝なかま +1 ／ ウルフの かち＝ウルフ +2</p>
+    <ul class="list">${ranking.map(([n,s])=>`<li><span>${esc(n)}</span><span class="score">${s}</span></li>`).join("")}</ul>
+  </div>
+  <button class="btn" data-act="start">🔁 もういちど あそぶ</button>
+  <button class="btn sub2" data-act="toTitle">🏠 さいしょに もどる</button>
+  <button class="btn sub2" data-act="resetScore">ポイントを 0に する</button>
+  `;
+},
+};
+
+const QUESTIONS = [
+  "それ、すき？","どこで 見る？","なにいろ？","さわったこと ある？","まいにち つかう？",
+  "おおきさは どれくらい？","いつ よく 見る？","おうちに ある？","おとは する？","たべられる？",
+  "なつと ふゆ、どっちの イメージ？","おとなも すき？","ねだんは たかい？","ひとりで できる？",
+];
+let qIdx = 0;
+
+// ---------- タイマー ----------
+function runTimer(){
+  const g = S.game;
+  g.total = g.total || S.minutes*60;
+  g.left = g.left ?? g.total;
+  const tick = () => {
+    const el = document.getElementById("timer"), bar = document.getElementById("bar");
+    if(!el) return;
+    const m = Math.floor(g.left/60), s = g.left%60;
+    el.textContent = `${m}:${String(s).padStart(2,"0")}`;
+    el.classList.toggle("low", g.left <= 10);
+    bar.style.width = (100*g.left/g.total) + "%";
+  };
+  tick();
+  timerId = setInterval(() => {
+    g.left = Math.max(0, g.left-1);
+    if(g.left <= 5 && g.left > 0) beep(700,.08);
+    tick();
+    if(g.left === 0){ stopTimer(); beep(520,.4,3); setTimeout(()=>{ if(S.screen==="talk") go("vote"); }, 1500); }
+  }, 1000);
+}
+
+// ---------- びょうが ----------
+function render(){
+  app.innerHTML = screens[S.screen]();
+  if(S.screen === "talk"){
+    document.getElementById("q").textContent = QUESTIONS[qIdx % QUESTIONS.length];
+    runTimer();
+  }
+}
+
+// ---------- そうさ ----------
+app.addEventListener("input", e => {
+  const i = e.target.dataset.name;
+  if(i != null){ S.names[+i] = e.target.value; store.set("names", S.names); }
+});
+
+app.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]");
+  if(!b || b.disabled) return;
+  const a = b.dataset.act, g = S.game;
+  switch(a){
+    case "count":
+      S.count = Math.max(3, Math.min(10, S.count + +b.dataset.d)); store.set("count", S.count);
+      if(S.wolves > maxWolves()) S.wolves = maxWolves();
+      render(); break;
+    case "toSettings": go("settings"); break;
+    case "toRules": S.prev = S.screen; go("rules"); break;
+    case "back": go(S.prev || "title"); break;
+    case "toTitle": go("title"); break;
+    case "toCustom": go("custom"); break;
+    case "theme": {
+      const t = b.dataset.t;
+      S.themes = S.themes.includes(t) ? S.themes.filter(x=>x!==t) : [...S.themes, t];
+      store.set("themes", S.themes); render(); break;
+    }
+    case "min": S.minutes = +b.dataset.m; store.set("minutes", S.minutes); render(); break;
+    case "wolves": S.wolves = +b.dataset.n; render(); break;
+    case "easy": S.easy = b.checked; store.set("easy", S.easy); break;
+    case "addPair": {
+      const A = document.getElementById("cA").value.trim(), B = document.getElementById("cB").value.trim();
+      if(!A || !B){ alert("ことばを 2つ いれてね"); return; }
+      if(A === B){ alert("ちがう ことばを いれてね"); return; }
+      S.custom.push([A,B]); store.set("custom", S.custom); render(); break;
+    }
+    case "delPair": S.custom.splice(+b.dataset.i,1); store.set("custom", S.custom); render(); break;
+    case "start": startGame(); break;
+    case "show": g.shown = true; beep(880,.08); render(); break;
+    case "hide":
+      g.shown = false; g.turn++;
+      go(g.turn >= g.names.length ? "ready" : "pass"); break;
+    case "talk": g.left = undefined; g.total = undefined; qIdx = Math.random()*QUESTIONS.length|0; go("talk"); break;
+    case "nextQ": qIdx++; document.getElementById("q").textContent = QUESTIONS[qIdx % QUESTIONS.length]; break;
+    case "plus": g.left += 30; g.total = Math.max(g.total, g.left); break;
+    case "toVote": go("vote"); break;
+    case "accuse": g.accused = +b.dataset.i; render(); break;
+    case "judge": g.revealed = false; go("result"); break;
+    case "reveal": g.revealed = true; beep(600,.12,2); render(); break;
+    case "rev": g.reversal = b.dataset.v === "1" ? "check" : false; render(); break;
+    case "rev2": g.reversal = b.dataset.v === "1"; render(); break;
+    case "resetScore": Object.keys(S.scores).forEach(k=>S.scores[k]=0); render(); break;
+  }
+});
+
+// あそんでいる とちゅうで まちがえて とじないように
+window.addEventListener("beforeunload", e => {
+  if(S.game && !["title","result","settings","rules","custom"].includes(S.screen)){ e.preventDefault(); e.returnValue=""; }
+});
+
+render();
+})();
+</script>
+</body>
+</html>
