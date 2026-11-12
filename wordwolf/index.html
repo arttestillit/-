@@ -99,6 +99,7 @@ input[type=text].bad{border-color:var(--warn);background:color-mix(in srgb,var(-
 .pairs button{min-height:44px;padding:6px 12px;font-size:.95rem;background:var(--secondary);color:var(--secondary-text);flex:0 0 auto}
 .score{font-weight:800;font-size:1.2rem;font-variant-numeric:tabular-nums}
 .center{text-align:center}
+.wolfrow{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 6px;margin:6px 0 2px;line-height:1.2}
 .win{font-size:2rem;font-weight:800;text-align:center}
 .win.c{color:var(--citizen)}.win.w{color:var(--wolf)}.win.d{color:var(--muted)}
 .tdisp{font-size:3rem;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;line-height:1.1}
@@ -636,6 +637,7 @@ result(){
   return `
   <div class="emoji">${res[2]}</div>
   <div class="win ${res[0]}">${res[1]}</div>
+  ${W>0 ? `<div class="wolfrow" role="img" aria-label="ウルフは${W}人" style="font-size:${W<=5?"2.8rem":W<=12?"2.1rem":"1.6rem"}">${"<span>🐺</span>".repeat(W)}</div>` : ""}
   <p class="center">${res[3]}</p>
   <div class="card">
     ${W<N ? `<p class="center">みんなの言葉{ことば}<br><span class="tag c">${esc(g.citizenWord)}</span></p>` : ""}
