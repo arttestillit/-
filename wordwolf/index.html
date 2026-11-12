@@ -251,7 +251,6 @@ const S = {
 };
 S.wolves = Math.min(S.wolves, S.count);
 S.wolvesRandom = !!store.get("wolvesRandom", false);
-S.wolvesMax = clamp(+store.get("wolvesMax", 2) || 2, 1, S.count);
 const app = document.getElementById("app");
 const $ = s => document.getElementById(s);
 
@@ -322,21 +321,18 @@ function validateNames(){
 function setCount(n){
   S.count = clamp(n, MIN_P, MAX_P); store.set("count", S.count);
   if(S.wolves > S.count){ S.wolves = S.count; store.set("wolves", S.wolves); }
-  if(S.wolvesMax > S.count){ S.wolvesMax = S.count; store.set("wolvesMax", S.wolvesMax); }
   const num = $("cnum"); if(num) num.innerHTML = nin(S.count);
   const r = $("cRange"); if(r) r.value = S.count;
   const nl = $("namesList"); if(nl) nl.innerHTML = namesHtml();
 }
 function setWolves(n){
-  if(S.wolvesRandom){ S.wolvesMax = clamp(n, 1, S.count); store.set("wolvesMax", S.wolvesMax); }
-  else { S.wolves = clamp(n, 0, S.count); store.set("wolves", S.wolves); }
-  const cur = S.wolvesRandom ? S.wolvesMax : S.wolves;
-  const w = $("wnum"); if(w) w.innerHTML = nin(cur);
-  const r = $("wRange"); if(r) r.value = cur;
+  S.wolves = clamp(n, 0, S.count); store.set("wolves", S.wolves);
+  const w = $("wnum"); if(w) w.innerHTML = nin(S.wolves);
+  const r = $("wRange"); if(r) r.value = S.wolves;
   const h = $("whint"); if(h) h.innerHTML = R(wolfHint());
 }
 const wolfHint = () => S.wolvesRandom
-  ? `ウルフの数{かず}は、ゲームが終{お}わるまでひみつ！<br>${nin(0)}〜${nin(S.wolvesMax)}のどれかになるよ。${nin(0)}もあるかも…？`
+  ? `ウルフの数{かず}は、ゲームが終{お}わるまでひみつ！<br>ウルフになる人{ひと}は、だいたい${nin(3)}に${nin(1)}。数{かず}は毎回{まいかい}ちがって、${nin(0)}もあるかも…？`
   : S.wolves === 0 ? "ウルフがいないゲーム！みんな同{おな}じ言葉{ことば}だよ。「いない」を見{み}ぬけるかな？"
   : S.wolves >= S.count ? "全員{ぜんいん}がウルフ！みんな同{おな}じ言葉{ことば}だよ。"
   : S.wolves > 1 ? "ウルフが何人{なんにん}かいるよ！ウルフ同士{どうし}は、だれかわからないよ。"
@@ -358,8 +354,10 @@ function startGame(){
   lastPairKey = pick.pair.join("/");
   const flip = Math.random() < .5;
   const names = S.names.slice(0, S.count).map(n => n.trim());
-  const wolves = S.wolvesRandom ? Math.floor(Math.random()*(clamp(S.wolvesMax,1,names.length)+1)) : clamp(S.wolves, 0, names.length);
-  const wolfIdx = shuffle(names.map((_,i)=>i)).slice(0, wolves);
+  const wolfIdx = S.wolvesRandom
+    ? names.map((_,i)=>i).filter(() => Math.random() < 1/3)
+    : shuffle(names.map((_,i)=>i)).slice(0, clamp(S.wolves, 0, names.length));
+  const wolves = wolfIdx.length;
   S.game = { names, theme:pick.theme, wolfIdx,
     citizenWord: flip ? pick.pair[1] : pick.pair[0], wolfWord: flip ? pick.pair[0] : pick.pair[1],
     turn:0, shown:false, picks:[], none:false, multi: S.wolvesRandom || wolves > 1, revealed:false, reversal:null, scored:false, more:false };
@@ -373,8 +371,7 @@ function outcome(g){
   if(g.none) return W === 0 ? "nowolf-right" : "missed-none";
   if(W === 0) return "nowolf-wrong";
   const hit = g.picks.filter(i => g.wolfIdx.includes(i)).length;
-  if(hit === W && g.picks.length === W) return "caught";
-  return hit === g.picks.length ? "partial" : "missed";
+  return hit * 3 >= W ? "caught" : "missed";
 }
 
 // ---------- 画面 ----------
@@ -401,7 +398,7 @@ rules(){
       <li>みんなは同{おな}じ言葉{ことば}。でも<b>ウルフ</b>だけ、少{すこ}しちがう言葉{ことば}だよ。<br>（例{れい}：みんな「犬{いぬ}」、ウルフ「ねこ」）</li>
       <li>言葉{ことば}をそのまま言{い}わないで、ヒントを出{だ}し合{あ}って話{はな}そう。<br>「どこにいる？」「好{す}き？」「何色{なにいろ}？」など</li>
       <li>時間{じかん}が来{き}たら、せーので「ウルフだと思{おも}う人{ひと}」を指{ゆび}さそう！</li>
-      <li>ウルフを見{み}つけたら <span class="tag c">みんなの勝{か}ち</span><br>まちがえたら <span class="tag w">ウルフの勝{か}ち</span></li>
+      <li>ウルフを見{み}つけたら <span class="tag c">みんなの勝{か}ち</span><br>まちがえたら <span class="tag w">ウルフの勝{か}ち</span><br>ウルフが何人{なんにん}かいるときは、3分{ぶん}の1以上{いじょう}を見{み}つければみんなの勝{か}ちだよ。</li>
       <li>見{み}つかったウルフは、みんなの言葉{ことば}を当{あ}てたら<b>ぎゃくてん勝{が}ち</b>！</li>
       <li>ウルフの数{かず}は${nin(0)}から全員{ぜんいん}まで選{えら}べるよ。${nin(0)}のときは「ウルフはいない」を選{えら}ぼう！<br>「ランダム」にすると、数{かず}は最後{さいご}までひみつだよ。</li>
     </ol>
@@ -474,14 +471,13 @@ settings(){
       <button class="chip ${S.wolvesRandom?"":"on"}" data-act="wmode" data-v="fixed">数{かず}を決{き}める</button>
       <button class="chip ${S.wolvesRandom?"on":""}" data-act="wmode" data-v="random">🎲 ランダム</button>
     </div>
-    ${S.wolvesRandom ? `<p class="sub" style="margin:0">いちばん多{おお}くて</p>` : ""}
-    <div class="stepper">
+    ${S.wolvesRandom ? "" : `<div class="stepper">
       <button data-act="wolves" data-d="-1" aria-label="へらす">−</button>
-      <div class="num" id="wnum">${nin(S.wolvesRandom ? S.wolvesMax : S.wolves)}</div>
+      <div class="num" id="wnum">${nin(S.wolves)}</div>
       <button data-act="wolves" data-d="1" aria-label="ふやす">＋</button>
     </div>
-    <input type="range" id="wRange" data-range="wolves" min="${S.wolvesRandom?1:0}" max="${S.count}" value="${S.wolvesRandom ? S.wolvesMax : S.wolves}" aria-label="ウルフの数">
-    <p class="sub">${S.wolvesRandom ? "" : `${nin(0)}〜${nin(S.count)}（遊{あそ}ぶ人{ひと}全員{ぜんいん}まで）`}</p>
+    <input type="range" id="wRange" data-range="wolves" min="0" max="${S.count}" value="${S.wolves}" aria-label="ウルフの数">
+    <p class="sub">${nin(0)}〜${nin(S.count)}（遊{あそ}ぶ人{ひと}全員{ぜんいん}まで）</p>`}
     <p class="hint" id="whint">${wolfHint()}</p>
   </div>
   <div class="bottom row">
@@ -566,7 +562,7 @@ vote(){
   <div class="emoji">👉</div>
   <h2>せーので指{ゆび}さそう！</h2>
   ${g.multi
-    ? `<p class="center">「ウルフだと思{おも}う人{ひと}」をみんなで話{はな}し合{あ}って、<b>全員{ぜんいん}</b>タッチしてね！<br>もう一度{いちど}タッチすると取{と}り消{け}せるよ。ウルフが何人{なんにん}いるかは、ひみつ！</p>`
+    ? `<p class="center">「ウルフだと思{おも}う人{ひと}」をみんなで話{はな}し合{あ}って、<b>全員{ぜんいん}</b>タッチしてね！<br>もう一度{いちど}タッチすると取{と}り消{け}せるよ。<br>ウルフの3分{ぶん}の1以上{いじょう}を当{あ}てたら、みんなの勝{か}ち！</p>`
     : `<p class="center">「ウルフだと思{おも}う人{ひと}」をみんなでいっしょに指{ゆび}さして、いちばん多{おお}かった人{ひと}をタッチ！</p>`}
   <div class="players" style="margin-top:12px">
     ${g.names.map((n,i)=>`<button data-act="accuse" data-i="${i}" class="${g.picks.includes(i)?"sel":""}" aria-pressed="${g.picks.includes(i)}">${esc(n)}</button>`).join("")}
@@ -579,6 +575,8 @@ vote(){
 
 result(){
   const g = S.game, kind = outcome(g);
+  const W0 = g.wolfIdx.length, hitIdx = g.picks.filter(i => g.wolfIdx.includes(i)), hit = hitIdx.length;
+  const hitNames = hitIdx.map(i => esc(g.names[i])).join("、");
   const accName = g.picks.map(i => esc(g.names[i])).join("、");
   if(!g.revealed){
     return `
@@ -591,8 +589,8 @@ result(){
     <div class="emoji">🐺</div>
     <div class="win w">ウルフだった！</div>
     <div class="card">
-      <p class="center"><b>${accName}</b>の言葉{ことば}は「<b>${esc(g.wolfWord)}</b>」</p>
-      <p class="hint" style="margin-top:10px">🎯 ぎゃくてんチャンス！<br>${accName}、みんなの言葉{ことば}は何{なに}かわかるかな？声{こえ}に出{だ}して言{い}ってみよう！</p>
+      <p class="center"><b>${hitNames}</b>の言葉{ことば}は「<b>${esc(g.wolfWord)}</b>」</p>
+      <p class="hint" style="margin-top:10px">🎯 ぎゃくてんチャンス！<br>${hitNames}、みんなの言葉{ことば}は何{なに}かわかるかな？声{こえ}に出{だ}して言{い}ってみよう！</p>
     </div>
     <div class="bottom row">
       <button class="btn s2" data-act="rev" data-v="0">わからない</button>
@@ -603,7 +601,7 @@ result(){
     return `
     <h2>みんなの言葉{ことば}は…</h2>
     <div class="card"><div class="big">${esc(g.citizenWord)}</div></div>
-    <p class="center">${accName}の答{こた}えはあってた？</p>
+    <p class="center">${hitNames}の答{こた}えはあってた？</p>
     <div class="bottom row">
       <button class="btn s2" data-act="rev2" data-v="0">はずれ</button>
       <button class="btn" data-act="rev2" data-v="1">あたり！</button>
@@ -613,11 +611,10 @@ result(){
   switch(kind){
     case "caught": res = g.reversal===true
       ? ["w","ウルフの勝{か}ち！","🐺🎉","ウルフがみんなの言葉{ことば}を当{あ}てた！ ぎゃくてん！"]
-      : ["c","みんなの勝{か}ち！","🙌🎉","ウルフを見{み}つけたよ！"]; break;
+      : ["c","みんなの勝{か}ち！","🙌🎉", W0 === 1 ? "ウルフを見{み}つけたよ！" : `ウルフ${nin(W0)}のうち${nin(hit)}を見{み}つけたよ！（3分{ぶん}の1以上{いじょう}でみんなの勝{か}ち）`]; break;
     case "missed": {
-      const wrong = g.picks.filter(i => !g.wolfIdx.includes(i)).map(i => esc(g.names[i])).join("、");
-      res = ["w","ウルフの勝{か}ち！","🐺🎉",`${wrong}はウルフじゃなかった！`]; break; }
-    case "partial": res = ["w","ウルフの勝{か}ち！","🐺🎉","ウルフを全員{ぜんいん}は見{み}つけられなかったよ！"]; break;
+      res = ["w","ウルフの勝{か}ち！","🐺🎉", hit === 0 ? "ウルフを1人{ひとり}も見{み}つけられなかったよ！"
+        : `ウルフ${nin(W0)}のうち、見{み}つけたのは${nin(hit)}だけ。3分{ぶん}の1に足{た}りなかったよ！`]; break; }
     case "missed-none": res = ["w","ウルフの勝{か}ち！","🐺🎉","ほんとうはウルフがいたよ！"]; break;
     case "nowolf-right": res = ["c","みんなの勝{か}ち！","🙌🎉","ウルフはいなかったよ！ せいかい！"]; break;
     case "nowolf-wrong": res = ["d","引{ひ}き分{わ}け","😅",`${accName}はウルフじゃなかったよ。ほんとうはウルフはいなかったんだ`]; break;
@@ -732,7 +729,7 @@ app.addEventListener("click", e => {
     case "toTitle": go("title"); break;
     case "toCustom": go("custom"); break;
     case "count": setCount(S.count + +b.dataset.d); break;
-    case "wolves": setWolves((S.wolvesRandom ? S.wolvesMax : S.wolves) + +b.dataset.d); break;
+    case "wolves": setWolves(S.wolves + +b.dataset.d); break;
     case "wmode": S.wolvesRandom = b.dataset.v === "random"; store.set("wolvesRandom", S.wolvesRandom); render(); break;
     case "secs": setSecs(S.secs + +b.dataset.d); break;
     case "secsSet": setSecs(+b.dataset.v); break;
