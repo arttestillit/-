@@ -55,11 +55,13 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
         <div class="card"><div class="l">残り距離</div><div class="v" id="remain">-</div></div>
         <div class="card"><div class="l">経過時間</div><div class="v" id="elapsed">-</div></div>
         <div class="card"><div class="l">平均速度(休憩込み)</div><div class="v" id="avg">-</div></div>
+        <div class="card"><div class="l">休憩時間(3分以上同じ場所)</div><div class="v" id="restT">-</div></div>
+        <div class="card"><div class="l">平均速度(休憩抜き)</div><div class="v" id="avgMov">-</div></div>
         <div class="card wide"><div class="l">目標到着に対する進行ペース</div>
           <div class="v pct" id="pct">-</div>
           <div class="hint" id="pctNote">ルート設定で目標到着時刻を入力してください</div></div>
-        <div class="card wide"><div class="l">1時間ごとの平均速度(休憩込み)</div>
-          <table id="hourTbl"><thead><tr><th>区間</th><th>距離</th><th>速度</th></tr></thead><tbody></tbody></table></div>
+        <div class="card wide"><div class="l">1時間ごとの平均速度</div>
+          <table id="hourTbl"><thead><tr><th>区間</th><th>距離</th><th>休憩</th><th>休憩込み</th><th>休憩抜き</th></tr></thead><tbody></tbody></table></div>
         <div class="card wide"><div class="l">休憩スポット</div><div class="list" id="spotProg">-</div></div>
       </div>
       <div class="row">
@@ -277,6 +279,7 @@ function renderAll() {
   if (!tr.length || !start) {
     ['walked', 'elapsed', 'avg'].forEach(i => $(i).textContent = '-');
     $('remain').innerHTML = total ? fmtKm(total) + '<small> km</small>' : '-';
+    $('restT').textContent = '-'; $('avgMov').textContent = '-';
     $('hourTbl').tBodies[0].innerHTML = ''; $('pct').textContent = '-'; $('pct').className = 'v pct';
     $('spotProg').textContent = S.spots.length ? 'ルート上の位置は記録開始後に表示' : '-';
     return;
@@ -288,11 +291,17 @@ function renderAll() {
   const endCalc = Math.max(last.t, start + 60000);
   const elapsedMs = (rec ? now : last.t) - start;
   const avg = walked / 1000 / ((endCalc - start) / 3600000);
+  const rests = NH.restIntervals(tr);
+  const restMs = NH.restOverlap(rests, start, endCalc);
+  const movH = (endCalc - start - restMs) / 3600000;
+  const avgMov = movH > 0 ? walked / 1000 / movH : 0;
 
   $('walked').innerHTML = fmtKm(walked) + '<small> km</small>';
   $('remain').innerHTML = remain === null ? '-' : fmtKm(remain) + '<small> km</small>' + (prog === null ? '<small>(概算)</small>' : '');
   $('elapsed').textContent = fmtDur(elapsedMs);
   $('avg').innerHTML = avg.toFixed(2) + '<small> km/h</small>';
+  $('restT').innerHTML = Math.round(restMs / 60000) + '<small> 分</small>';
+  $('avgMov').innerHTML = avgMov.toFixed(2) + '<small> km/h</small>';
 
   // 目標に対する%
   const target = S.target ? new Date(S.target).getTime() : 0;
@@ -312,8 +321,10 @@ function renderAll() {
   }
 
   // 1時間ごと
-  $('hourTbl').tBodies[0].innerHTML = NH.hourly(tr, start, endCalc).map(r =>
-    `<tr><td>${r.k}〜${r.k + 1}時間${r.partial ? `(${r.minutes}分)` : ''}</td><td>${r.km.toFixed(2)} km</td><td><b>${r.kmh === null ? '-' : r.kmh.toFixed(2) + ' km/h'}</b></td></tr>`).join('');
+  $('hourTbl').tBodies[0].innerHTML = NH.hourly(tr, start, endCalc, rests).map(r => {
+    const f = v => v === null ? '-' : v.toFixed(2);
+    return `<tr><td>${r.k}〜${r.k + 1}時間${r.partial ? `(${r.minutes}分)` : ''}</td><td>${r.km.toFixed(2)}km</td><td>${r.restMin}分</td><td><b>${f(r.kmh)}</b></td><td><b>${f(r.kmhMoving)}</b></td></tr>`;
+  }).join('');
 
   // 休憩スポットまでの距離(ルート上の道のり)
   if (route && S.spots.length) {

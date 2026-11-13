@@ -84,19 +84,44 @@
     return track[track.length - 1].d;
   }
 
-  // 開始から 1 時間ごと(休憩込み)の平均速度
-  function hourly(track, startMs, endMs) {
+  // 休憩判定: 同じ場所(半径 radius m 以内)に minMs 以上とどまっていたら休憩。 -> [{s,e}] (ms)
+  function restIntervals(track, minMs, radius) {
+    minMs = minMs || 180000; radius = radius || 20;
+    const out = [], n = track.length;
+    let i = 0;
+    while (i < n) {
+      let j = i;
+      while (j + 1 < n && haversine([track[i].lat, track[i].lon], [track[j + 1].lat, track[j + 1].lon]) <= radius) j++;
+      if (track[j].t - track[i].t >= minMs) { out.push({ s: track[i].t, e: track[j].t }); i = j + 1; }
+      else i++;
+    }
+    return out;
+  }
+
+  function restOverlap(rests, s, e) {
+    let ms = 0;
+    for (const r of rests) ms += Math.max(0, Math.min(e, r.e) - Math.max(s, r.s));
+    return ms;
+  }
+
+  // 開始から 1 時間ごとの平均速度。kmh=休憩込み / kmhMoving=休憩を除いた仮想速度
+  function hourly(track, startMs, endMs, rests) {
+    rests = rests || [];
     const H = 3600000, rows = [];
     for (let k = 0; startMs + k * H < endMs; k++) {
       const s = startMs + k * H, e = Math.min(endMs, s + H);
       const m = distAt(track, startMs, e) - distAt(track, startMs, s);
       const hours = (e - s) / H;
+      const restMs = restOverlap(rests, s, e), movingH = (e - s - restMs) / H;
       rows.push({ k, minutes: Math.round((e - s) / 60000), km: m / 1000,
-        kmh: hours >= 5 / 60 ? (m / 1000) / hours : null, partial: e - s < H });
+        restMin: Math.round(restMs / 60000),
+        kmh: hours >= 5 / 60 ? (m / 1000) / hours : null,
+        kmhMoving: movingH >= 5 / 60 ? (m / 1000) / movingH : null,
+        partial: e - s < H });
     }
     return rows;
   }
 
-  const api = { haversine, buildRoute, projectOnRoute, routeProgress, prepareTrack, distAt, hourly };
+  const api = { haversine, buildRoute, projectOnRoute, routeProgress, prepareTrack, distAt, hourly, restIntervals, restOverlap };
   if (typeof module !== 'undefined') module.exports = api; else root.NH = api;
 })(typeof window !== 'undefined' ? window : globalThis);
