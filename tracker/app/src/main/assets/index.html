@@ -72,7 +72,7 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
     </div>
 
     <div id="viewEdit" hidden>
-      <div class="hint">① 下のボタンで追加モードを選び、② 地図をタップして配置します。経路点は実際の道(徒歩ルート)に沿って自動で線が引かれます。最初の経路点=スタート、最後=ゴールです。</div>
+      <div class="hint">① 下のボタンで追加モードを選び、② 地図をタップして配置します。経路点は実際の道(徒歩ルート)に沿って自動で線が引かれます。最初の経路点=スタート、最後=ゴールです。間違えた点は、その点をタップして「この点を削除」を押すと消せます(ドラッグで動かすこともできます)。</div>
       <div class="row">
         <button id="mWp">経路点を追加</button>
         <button id="mSpot">休憩所を追加</button>
@@ -213,7 +213,14 @@ function renderMarkers() {
       : L.divIcon({ className: '', html: '<div class="wp"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
     const m = L.marker(p, { icon, draggable: true }).addTo(wpLayer);
     m.on('dragend', () => { const ll = m.getLatLng(); S.wps[i] = [ll.lat, ll.lng, p[2] || 0]; persist(); updateRoute(); });
-    m.on('click', () => { if (mode === 'wp' && confirm('この経路点を削除しますか?')) { S.wps.splice(i, 1); persist(); renderMarkers(); updateRoute(); } });
+    m.on('click', () => {   // ルート設定タブで経路点をタップ → 削除ボタン(誤タップ防止のため記録タブでは出さない)
+      if ($('viewEdit').hidden) return;
+      const box = document.createElement('div');
+      box.innerHTML = `<b>${first ? 'スタート' : last ? 'ゴール' : '経路点' + (i + 1)}</b><br>`;
+      const del = document.createElement('button'); del.textContent = 'この点を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
+      del.onclick = () => { map.closePopup(); S.wps.splice(i, 1); persist(); renderMarkers(); updateRoute(); };
+      box.appendChild(del); L.popup({ offset: [0, -8] }).setLatLng(m.getLatLng()).setContent(box).openOn(map);
+    });
   });
   if (TAIL.use) TAIL.pts.forEach((t, i) => {
     const last = i === TAIL.pts.length - 1;
