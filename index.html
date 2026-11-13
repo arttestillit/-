@@ -76,6 +76,7 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
       <div class="row">
         <button id="mWp">経路点を追加(末尾)</button>
         <button id="mIns">途中に挿入</button>
+        <button id="mMove">点の移動・線の編集</button>
         <button id="mSpot">休憩所を追加</button>
         <button id="mOff">編集終了</button>
       </div>
@@ -89,6 +90,7 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
           <option value="manual">手動(打った点を全て直線でつなぐ)</option>
         </select>
         <button id="reroute" style="margin-top:6px;width:100%">ルートの線を引き直す</button>
+        <button id="allRoad" style="margin-top:6px;width:100%">直線にした区間を全て道路に沿わせる</button>
         <div class="hint">遠回りの区間は地図上でオレンジ色になります。ルート線をタップすると「経由点を足す」「その区間を直線にする(紫の点線)」を選べます。国道のバイパスなど検索が脇道に逸れる所は、点を細かく打って直線にするのが確実です。</div>
       </div>
       <div class="card" style="margin-top:8px">
@@ -159,7 +161,7 @@ function insertWaypointAt(k, tap, straight) {
 // ルート線は細くて押しにくいので、透明で太い当たり判定の線を重ねる
 const routeHit = L.polyline([], { color: '#000', weight: 30, opacity: 0 }).addTo(map);
 const onRouteClick = e => {
-  if ($('viewEdit').hidden || !route) return;
+  if (mode !== 'move' || !route) return;   // 「点の移動・線の編集」中だけ反応(他のモードのタップは地図へ)
   L.DomEvent.stopPropagation(e);
   const W = allWps(), tap = [e.latlng.lat, e.latlng.lng];
   const k = legIndexFor(tap);
@@ -191,23 +193,38 @@ function setMode(m) {
   $('mSpot').className = m === 'spot' ? 'on' : '';
   $('mIns').className = m === 'ins' ? 'on' : '';
   $('mTail').className = m === 'tail' ? 'on' : '';
-  $('modeNote').textContent = m ? '編集モード中: 地図をタップして追加' : '';
+  $('mMove').className = m === 'move' ? 'on' : '';
+  $('modeNote').textContent = m === 'move' ? '編集中: 点をドラッグで移動 / 点をタップで削除 / ルート線をタップで経由点・直線の切替'
+    : m ? '編集モード中: 地図をタップして追加' : '';
+  if (!m) map.closePopup();
+  applyEditState();
 }
-$('mWp').onclick = () => setMode('wp'); $('mSpot').onclick = () => setMode('spot'); $('mOff').onclick = () => setMode(null); $('mIns').onclick = () => setMode('ins'); $('mTail').onclick = () => { if (!$('tailName').value) $('tailName').value = TAIL_NAMES[TAIL.pts.length] || ('通過点' + (TAIL.pts.length + 1)); setMode('tail'); };
+// 編集中のときだけ点を動かせる(「編集終了」で固定)
+function applyEditState() {
+  [wpLayer, spotLayer].forEach(g => g.eachLayer(m => { if (m.dragging) mode ? m.dragging.enable() : m.dragging.disable(); }));
+}
+$('mWp').onclick = () => setMode('wp'); $('mSpot').onclick = () => setMode('spot'); $('mOff').onclick = () => setMode(null); $('mMove').onclick = () => setMode('move'); $('mIns').onclick = () => setMode('ins'); $('mTail').onclick = () => { if (!$('tailName').value) $('tailName').value = TAIL_NAMES[TAIL.pts.length] || ('通過点' + (TAIL.pts.length + 1)); setMode('tail'); };
 map.on('click', e => {
   if (!mode) return;
   const p = [e.latlng.lat, e.latlng.lng];
+  if (mode === 'move') return;
   if (mode === 'ins') { insertWaypointAt(legIndexFor(p), p, false); return; }
   if (mode === 'wp') { S.wps.push(p); persist(); renderMarkers(); updateRoute(); }
   else if (mode === 'tail') {
     TAIL.pts.push({ lat: p[0], lon: p[1], name: $('tailName').value.trim() || ('通過点' + (TAIL.pts.length + 1)) });
     $('tailName').value = TAIL_NAMES[TAIL.pts.length] || ''; saveTail(); renderMarkers(); updateRoute(); }
-  else { S.spots.push({ lat: p[0], lon: p[1], name: $('spotName').value.trim() || ('休憩所' + (S.spots.length + 1)) });
+  else if (mode === 'spot') { S.spots.push({ lat: p[0], lon: p[1], name: $('spotName').value.trim() || ('休憩所' + (S.spots.length + 1)) });
     $('spotName').value = ''; persist(); renderMarkers(); renderAll(); }
 });
 $('undoTail').onclick = () => { TAIL.pts.pop(); saveTail(); renderMarkers(); updateRoute(); };
 $('clearTail').onclick = () => { if (confirm('固定ルートを全て消しますか?')) { TAIL.pts = []; saveTail(); renderMarkers(); updateRoute(); } };
 $('routeMode').onchange = () => { S.mode = $('routeMode').value; persist(); updateRoute(); };
+$('allRoad').onclick = () => {
+  S.wps.forEach(p => { p[2] = 0; }); TAIL.pts.forEach(t => { t.straight = false; });
+  if (S.mode === 'manual') { S.mode = 'main'; $('routeMode').value = 'main'; }
+  persist(); saveTail(); for (const k in legCache) delete legCache[k]; try { localStorage.removeItem('nhLegs'); } catch (e) {}
+  updateRoute();
+};
 $('reroute').onclick = () => { for (const k in legCache) delete legCache[k]; try { localStorage.removeItem('nhLegs'); } catch (e) {} updateRoute(); };
 $('useTail').onchange = () => { TAIL.use = $('useTail').checked; saveTail(); renderMarkers(); updateRoute(); };
 $('searchGo').onclick = async () => {
@@ -234,7 +251,7 @@ function renderMarkers() {
     const m = L.marker(p, { icon, draggable: true }).addTo(wpLayer);
     m.on('dragend', () => { const ll = m.getLatLng(); S.wps[i] = [ll.lat, ll.lng, p[2] || 0]; persist(); updateRoute(); });
     m.on('click', () => {   // ルート設定タブで経路点をタップ → 削除ボタン(誤タップ防止のため記録タブでは出さない)
-      if ($('viewEdit').hidden) return;
+      if (!mode) return;
       const box = document.createElement('div');
       box.innerHTML = `<b>${first ? 'スタート' : last ? 'ゴール' : '経路点' + (i + 1)}</b><br>`;
       const del = document.createElement('button'); del.textContent = 'この点を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
@@ -250,7 +267,7 @@ function renderMarkers() {
     const box = document.createElement('div'); box.innerHTML = `<b>${esc(t.name)}</b><br>`;
     const del = document.createElement('button'); del.textContent = 'この点を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
     del.onclick = () => { map.closePopup(); TAIL.pts.splice(i, 1); saveTail(); renderMarkers(); updateRoute(); };
-    box.appendChild(del); m.bindPopup(box);
+    box.appendChild(del); m.on('click', () => { if (mode) L.popup({ offset: [0, -8] }).setLatLng(m.getLatLng()).setContent(box).openOn(map); });
     m.on('dragend', () => { const ll = m.getLatLng(); t.lat = ll.lat; t.lon = ll.lng; saveTail(); updateRoute(); });
   });
   S.spots.forEach((s, i) => {
@@ -261,10 +278,12 @@ function renderMarkers() {
     box.innerHTML = `<b>${esc(s.name)}</b><br>`;
     const del = document.createElement('button'); del.textContent = 'この休憩所を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
     del.onclick = () => { map.closePopup(); deleteSpot(i); };
-    box.appendChild(del); m.bindPopup(box);
+    box.appendChild(del); m.on('click', () => { if (mode) L.popup({ offset: [0, -8] }).setLatLng(m.getLatLng()).setContent(box).openOn(map); });
     m.on('dragend', () => { const ll = m.getLatLng(); S.spots[i].lat = ll.lat; S.spots[i].lon = ll.lng; persist(); renderAll(); });
   });
+  applyEditState();
 }
+
 function deleteSpot(i) { S.spots.splice(i, 1); persist(); renderMarkers(); renderAll(); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -283,8 +302,14 @@ function saveLegs() {
 async function fetchLeg(kind, a, b) {
   const key = kind + '|' + a.map(x => x.toFixed(6)) + '|' + b.map(x => x.toFixed(6));
   if (legCache[key]) return legCache[key];
-  const r = await fetch(PROFILE[kind](`${a[1]},${a[0]};${b[1]},${b[0]}`));
-  const j = await r.json();
+  let j = null;
+  for (let t = 0; t < 3 && !j; t++) {   // 混雑(429)や一時的な失敗は少し待って再試行
+    try {
+      const r = await fetch(PROFILE[kind](`${a[1]},${a[0]};${b[1]},${b[0]}`));
+      if (r.status === 429 || r.status >= 500) throw new Error('HTTP ' + r.status);
+      j = await r.json();
+    } catch (e) { if (t === 2) throw e; await new Promise(res => setTimeout(res, 1000 * (t + 1))); }
+  }
   if (j.code !== 'Ok') throw new Error(j.code);
   const geom = j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
   legCache[key] = { geom: geom.map(c => [+c[0].toFixed(5), +c[1].toFixed(5)]), len: j.routes[0].distance }; saveLegs();
@@ -302,9 +327,10 @@ async function routeLeg(a, b) {
   return { geom: pick.geom, len: pick.len, straight, how,
     detour: pick.len > straight * 1.6 && pick.len - straight > 300 };
 }
-let routeSeq = 0, routeNote = '', legInfo = [], routing = false;
+let badRetry = 0, routeSeq = 0, routeNote = '', legInfo = [], routing = false;
 const detourLayer = L.layerGroup().addTo(map);
-async function updateRoute() {
+async function updateRoute(isRetry) {
+  if (!isRetry) badRetry = 0;
   const seq = ++routeSeq;
   const W = allWps();
   if (W.length < 2) { S.routeGeom = W.slice(); legInfo = []; persist(); drawRoute(); return; }
@@ -313,7 +339,7 @@ async function updateRoute() {
   // 消した/動かした直後に古い線が残らないよう、まず点同士を結ぶ仮の線に差し替える
   routeLine.setLatLngs(W.map(p => [p[0], p[1]])); detourLayer.clearLayers();
   $('routeInfo').textContent = `ルート計算中… 0/${legs.length}`;
-  await Promise.all([0, 1, 2, 3].map(async () => {
+  await Promise.all([0, 1, 2].map(async () => {
     while (next < legs.length) { const i = next++; legs[i] = await routeLeg(W[i], W[i + 1]); done++;
       if (seq === routeSeq) $('routeInfo').textContent = `ルート計算中… ${done}/${legs.length}`; }
   }));
@@ -323,7 +349,10 @@ async function updateRoute() {
   legs.forEach(l => l.geom.forEach((c, k) => { if (!(geom.length && k === 0)) geom.push(c); }));
   S.routeGeom = geom; legInfo = legs;
   const bad = legs.filter(l => l.bad).length, det = legs.filter(l => l.detour).length;
-  routeNote = (bad ? '⚠ 道路データを取得できない区間は直線で表示中(電波のある所で経路点を少し動かすと再計算します)。' : '') +
+  S.hasBad = bad > 0;
+  if (bad && badRetry < 3) { badRetry++; setTimeout(() => { if (seq === routeSeq) updateRoute(true); }, 15000); }
+  if (!bad) badRetry = 0;
+  routeNote = (bad ? '⚠ 道路データを取得できず直線のままの区間があります(赤い点線)。自動で再取得を試みます。「ルートの線を引き直す」でも再計算できます。' : '') +
     (det ? `⚠ 遠回りの可能性がある区間が ${det} か所(地図のオレンジ線)。ルート線をタップして経由点を足し、大通りへドラッグしてください。` : '');
   persist(); drawRoute();
 }
@@ -332,6 +361,7 @@ function drawRoute() {
   routeLine.setLatLngs(S.routeGeom); routeHit.setLatLngs(S.routeGeom);
   detourLayer.clearLayers();
   legInfo.forEach(l => { if (l.manual && S.mode !== 'manual') L.polyline(l.geom, { color: '#9b51e0', weight: 7, opacity: .9, dashArray: '2 10', interactive: false }).addTo(detourLayer); });
+  legInfo.forEach(l => { if (l.bad) L.polyline(l.geom, { color: '#e03131', weight: 6, opacity: .9, dashArray: '8 8', interactive: false }).addTo(detourLayer); });
   legInfo.forEach(l => { if (l.detour) L.polyline(l.geom, { color: '#ff8c00', weight: 8, opacity: .9, interactive: false }).addTo(detourLayer); });
   route = S.routeGeom.length > 1 ? NH.buildRoute(S.routeGeom) : null;
   renderAll();
@@ -537,7 +567,7 @@ $('tabStat').onclick = () => tab(false); $('tabEdit').onclick = () => tab(true);
 $('target').value = S.target || ''; $('useTail').checked = TAIL.use; $('routeMode').value = S.mode;
 $('startAt').value = S.startAt ? toLocalInput(S.startAt) : '';
 renderMarkers(); drawRoute();
-if (allWps().length > 1 && S.routeGeom.length <= allWps().length) updateRoute();   // 未計算/直線のままなら再取得
+if (allWps().length > 1 && (S.routeGeom.length <= allWps().length || S.hasBad)) updateRoute();   // 未計算/直線のままなら再取得
 if (S.routeGeom.length > 1) map.fitBounds(L.polyline(S.routeGeom).getBounds(), { padding: [20, 20] });
 if (!isApp && localStorage.getItem('webRec')) startWeb();
 refresh();
