@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>ナイトハイク</title>
+<link rel="stylesheet" href="leaflet/leaflet.css">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#0f1419;color:#e8eef4}
+#app{display:flex;flex-direction:column;height:100%}
+#top{display:flex;gap:8px;align-items:center;padding:8px;background:#18212b}
+#top .st{flex:1;font-size:12px;color:#9fb0c0;line-height:1.3}
+button{font:inherit;border:0;border-radius:8px;padding:10px 14px;background:#2d3e50;color:#fff}
+button.go{background:#1f9d55}button.stop{background:#d64545}button.on{background:#d98a00}
+#map{flex:0 0 42%;min-height:200px}
+#panel{flex:1;overflow:auto;padding:10px}
+.tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1;padding:8px}.tabs button.sel{background:#3b6ea5}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.card{background:#18212b;border-radius:10px;padding:10px}
+.card .l{font-size:11px;color:#9fb0c0}.card .v{font-size:26px;font-weight:700}.card .v small{font-size:13px;font-weight:400}
+.wide{grid-column:1/3}
+.pct.g{color:#4cd98a}.pct.y{color:#f2c94c}.pct.r{color:#ff6b6b}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:5px 4px;text-align:right;border-bottom:1px solid #2a3846}
+td:first-child,th:first-child{text-align:left}
+input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;background:#0f1419;color:#fff;width:100%}
+.row{display:flex;gap:6px;margin:6px 0;flex-wrap:wrap}.row button{flex:1}
+.hint{font-size:12px;color:#9fb0c0;margin:6px 0}
+.spot{background:#ff8c00;color:#fff;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+  width:34px;height:34px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px #0008}
+.spot b{transform:rotate(45deg);font-size:18px}
+.lbl{position:absolute;left:30px;top:-6px;white-space:nowrap;background:#fff;color:#c05a00;font-size:12px;font-weight:700;
+  padding:1px 6px;border-radius:6px;box-shadow:0 1px 4px #0006}
+.wp{width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #3b6ea5}
+.flag{font-size:26px;line-height:26px;text-shadow:0 0 3px #fff,0 0 3px #fff}
+.me{width:18px;height:18px;border-radius:50%;background:#2f80ed;border:3px solid #fff;box-shadow:0 0 0 4px #2f80ed55}
+.list div{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #2a3846;font-size:13px}
+.list button{padding:4px 10px;background:#7a2f2f}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <button id="btnRec" class="go">● 記録開始</button>
+    <div class="st" id="status">待機中</div>
+    <button id="btnFollow" class="on">追従</button>
+  </div>
+  <div id="map"></div>
+  <div id="panel">
+    <div class="tabs"><button id="tabStat" class="sel">記録</button><button id="tabEdit">ルート設定</button></div>
+
+    <div id="viewStat">
+      <div class="grid">
+        <div class="card"><div class="l">歩いた距離</div><div class="v" id="walked">-</div></div>
+        <div class="card"><div class="l">残り距離</div><div class="v" id="remain">-</div></div>
+        <div class="card"><div class="l">経過時間</div><div class="v" id="elapsed">-</div></div>
+        <div class="card"><div class="l">平均速度(休憩込み)</div><div class="v" id="avg">-</div></div>
+        <div class="card"><div class="l">休憩時間(3分以上同じ場所)</div><div class="v" id="restT">-</div></div>
+        <div class="card"><div class="l">平均速度(休憩抜き)</div><div class="v" id="avgMov">-</div></div>
+        <div class="card wide"><div class="l">目標到着に対する進行ペース</div>
+          <div class="v pct" id="pct">-</div>
+          <div class="hint" id="pctNote">ルート設定で目標到着時刻を入力してください</div></div>
+        <div class="card wide"><div class="l">1時間ごとの平均速度</div>
+          <table id="hourTbl"><thead><tr><th>区間</th><th>距離</th><th>休憩</th><th>休憩込み</th><th>休憩抜き</th></tr></thead><tbody></tbody></table></div>
+        <div class="card wide"><div class="l">休憩スポット</div><div class="list" id="spotProg">-</div></div>
+      </div>
+      <div class="row">
+        <button id="btnShare">ログを共有(CSV)</button>
+        <button id="btnClear">ログ消去</button>
+      </div>
+      <div class="hint" id="modeNote"></div>
+    </div>
+
+    <div id="viewEdit" hidden>
+      <div class="hint">① 下のボタンで追加モードを選び、② 地図をタップして配置します。経路点は実際の道(徒歩ルート)に沿って自動で線が引かれます。最初の経路点=スタート、最後=ゴールです。</div>
+      <div class="row">
+        <button id="mWp">経路点を追加</button>
+        <button id="mSpot">休憩所を追加</button>
+        <button id="mOff">編集終了</button>
+      </div>
+      <input id="spotName" placeholder="休憩所の名前(例: 〇〇公園)">
+      <div class="row"><button id="undoWp">経路点を1つ戻す</button><button id="clearRoute">ルート全消去</button></div>
+      <div class="card" style="margin-top:8px">
+        <div class="l">目標到着時刻</div><input type="datetime-local" id="target">
+        <div class="l" style="margin-top:8px">出発時刻(記録開始ボタンで自動設定。手動修正可)</div><input type="datetime-local" id="startAt">
+      </div>
+      <div class="card" style="margin-top:8px"><div class="l">ルート情報</div><div id="routeInfo">-</div></div>
+      <div class="card list" style="margin-top:8px"><div class="l">休憩所一覧</div><div id="spotList"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="leaflet/leaflet.js"></script>
+<script src="logic.js"></script>
+<script>
+const OSRM = 'https://routing.openstreetmap.de/routed-foot';
+const $ = id => document.getElementById(id);
+const isApp = typeof Android !== 'undefined';
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+let S = load('nh', { wps: [], spots: [], routeGeom: [], target: '', startAt: 0 });
+const persist = () => save('nh', S);
+
+// ---------- 地図 ----------
+const map = L.map('map', { zoomControl: false }).setView([35.68, 139.76], 13);
+L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+  maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>' }).addTo(map);
+const routeLine = L.polyline([], { color: '#2f80ed', weight: 6, opacity: .8 }).addTo(map);
+const trackRaw = L.polyline([], { color: '#999', weight: 2, dashArray: '4 6' }).addTo(map);
+const trackLine = L.polyline([], { color: '#ff4d4d', weight: 5, opacity: .95 }).addTo(map);
+const wpLayer = L.layerGroup().addTo(map), spotLayer = L.layerGroup().addTo(map);
+let meMarker = null, follow = true;
+
+$('btnFollow').onclick = () => { follow = !follow; $('btnFollow').className = follow ? 'on' : ''; };
+map.on('dragstart', () => { follow = false; $('btnFollow').className = ''; });
+
+// ---------- ルート編集 ----------
+let mode = null;
+function setMode(m) {
+  mode = m;
+  $('mWp').className = m === 'wp' ? 'on' : '';
+  $('mSpot').className = m === 'spot' ? 'on' : '';
+  $('modeNote').textContent = m ? '編集モード中: 地図をタップして追加' : '';
+}
+$('mWp').onclick = () => setMode('wp'); $('mSpot').onclick = () => setMode('spot'); $('mOff').onclick = () => setMode(null);
+map.on('click', e => {
+  if (!mode) return;
+  const p = [e.latlng.lat, e.latlng.lng];
+  if (mode === 'wp') { S.wps.push(p); persist(); renderMarkers(); updateRoute(); }
+  else { S.spots.push({ lat: p[0], lon: p[1], name: $('spotName').value.trim() || ('休憩所' + (S.spots.length + 1)) });
+    $('spotName').value = ''; persist(); renderMarkers(); renderAll(); }
+});
+$('undoWp').onclick = () => { S.wps.pop(); persist(); renderMarkers(); updateRoute(); };
+$('clearRoute').onclick = () => { if (confirm('ルートと休憩所を全て消しますか?')) { S.wps = []; S.spots = []; S.routeGeom = []; persist(); renderMarkers(); updateRoute(); } };
+$('target').onchange = () => { S.target = $('target').value; persist(); renderAll(); };
+$('startAt').onchange = () => { S.startAt = $('startAt').value ? new Date($('startAt').value).getTime() : 0; persist(); renderAll(); };
+
+function renderMarkers() {
+  wpLayer.clearLayers(); spotLayer.clearLayers();
+  S.wps.forEach((p, i) => {
+    const first = i === 0, last = i === S.wps.length - 1 && i > 0;
+    const icon = first || last
+      ? L.divIcon({ className: '', html: `<div class="flag">${first ? '🚩' : '🏁'}</div>`, iconSize: [26, 26], iconAnchor: [4, 24] })
+      : L.divIcon({ className: '', html: '<div class="wp"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
+    const m = L.marker(p, { icon, draggable: true }).addTo(wpLayer);
+    m.on('dragend', () => { const ll = m.getLatLng(); S.wps[i] = [ll.lat, ll.lng]; persist(); updateRoute(); });
+    m.on('click', () => { if (mode === 'wp' && confirm('この経路点を削除しますか?')) { S.wps.splice(i, 1); persist(); renderMarkers(); updateRoute(); } });
+  });
+  S.spots.forEach((s, i) => {
+    const icon = L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 34],
+      html: `<div class="spot"><b>☕</b></div><div class="lbl">${esc(s.name)}</div>` });
+    const m = L.marker([s.lat, s.lon], { icon, zIndexOffset: 1000, draggable: true }).addTo(spotLayer);
+    const box = document.createElement('div');
+    box.innerHTML = `<b>${esc(s.name)}</b><br>`;
+    const del = document.createElement('button'); del.textContent = 'この休憩所を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
+    del.onclick = () => { map.closePopup(); deleteSpot(i); };
+    box.appendChild(del); m.bindPopup(box);
+    m.on('dragend', () => { const ll = m.getLatLng(); S.spots[i].lat = ll.lat; S.spots[i].lon = ll.lng; persist(); renderAll(); });
+  });
+}
+function deleteSpot(i) { S.spots.splice(i, 1); persist(); renderMarkers(); renderAll(); }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ルート(道なり)計算
+let routeSeq = 0, routeNote = '';
+async function updateRoute() {
+  const seq = ++routeSeq;
+  if (S.wps.length < 2) { S.routeGeom = S.wps.slice(); persist(); drawRoute(); return; }
+  const coords = S.wps.map(p => p[1] + ',' + p[0]).join(';');
+  try {
+    const r = await fetch(`${OSRM}/route/v1/foot/${coords}?overview=full&geometries=geojson`);
+    const j = await r.json();
+    if (seq !== routeSeq) return;
+    if (j.code !== 'Ok') throw new Error(j.code);
+    S.routeGeom = j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    routeNote = '';
+  } catch (e) {
+    if (seq !== routeSeq) return;
+    S.routeGeom = S.wps.slice();
+    routeNote = '⚠ 道路データを取得できず直線で表示中(電波のある所で経路点を少し動かすと再計算します)';
+  }
+  persist(); drawRoute();
+}
+let route = null;
+function drawRoute() {
+  routeLine.setLatLngs(S.routeGeom);
+  route = S.routeGeom.length > 1 ? NH.buildRoute(S.routeGeom) : null;
+  renderAll();
+}
+
+// ---------- 軌跡の取得 ----------
+let rawTrack = [];
+function readTrack() {
+  if (isApp) { try { rawTrack = JSON.parse(Android.getTrack()); } catch (e) {} }
+  else rawTrack = load('webTrack', []);
+}
+let webWatch = null, webTimer = null, webLast = null;
+let wakeLock = null;
+async function keepAwake() { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && webTimer !== null) keepAwake(); });
+function startWeb() {   // Web版: 画面を点灯したままにして記録(消灯すると止まります)
+  localStorage.setItem('webRec', '1'); keepAwake();
+  webWatch = navigator.geolocation.watchPosition(p => { webLast = p; }, () => {}, { enableHighAccuracy: true });
+  const rec = () => { if (!webLast) return; const t = load('webTrack', []);
+    t.push({ t: Date.now(), lat: webLast.coords.latitude, lon: webLast.coords.longitude, acc: webLast.coords.accuracy });
+    save('webTrack', t); };
+  webTimer = setInterval(rec, 60000); setTimeout(rec, 3000);
+}
+function stopWeb() { localStorage.removeItem('webRec'); try { wakeLock && wakeLock.release(); } catch (e) {} navigator.geolocation.clearWatch(webWatch); clearInterval(webTimer); webWatch = webTimer = null; }
+const tracking = () => isApp ? Android.isTracking() : webTimer !== null;
+
+$('btnRec').onclick = () => {
+  if (!tracking()) {
+    if (!rawTrack.length || !S.startAt) S.startAt = Date.now();   // 新規記録なら今を出発時刻に。再開時は維持
+    persist();
+    isApp ? Android.start() : startWeb();
+  } else {
+    if (!confirm('記録を停止しますか?')) return;
+    isApp ? Android.stop() : stopWeb();
+  }
+  setTimeout(refresh, 800);
+};
+$('btnClear').onclick = () => {
+  if (!confirm('記録したログを全て消去します。よろしいですか?')) return;
+  isApp ? Android.clearTrack() : localStorage.removeItem('webTrack');
+  S.startAt = 0; persist(); matchCache = {}; save('matchCache', {}); refresh();
+};
+$('btnShare').onclick = () => {
+  const csv = 'time,lat,lon,accuracy_m\n' + rawTrack.map(p => `${new Date(p.t).toISOString()},${p.lat},${p.lon},${p.acc}`).join('\n');
+  isApp ? Android.share(csv) : (navigator.clipboard && navigator.clipboard.writeText(csv), alert('CSVをコピーしました'));
+};
+
+// ---------- 軌跡の道路へのマッチング ----------
+const CHUNK = 25;
+let matchCache = load('matchCache', {}), matching = false;
+async function matchChunk(pts) {
+  const coords = pts.map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
+  const rad = pts.map(() => 40).join(';');
+  const r = await fetch(`${OSRM}/match/v1/foot/${coords}?overview=full&geometries=geojson&radiuses=${rad}`);
+  const j = await r.json();
+  if (j.code !== 'Ok') throw new Error(j.code);
+  const out = [];
+  j.matchings.forEach(m => m.geometry.coordinates.forEach(c => out.push([c[1], c[0]])));
+  return out;
+}
+async function matchAll(tr) {
+  if (matching || tr.length < 2) return;
+  matching = true;
+  try {
+    for (let i = 0; i * CHUNK < tr.length - 1; i++) {
+      const pts = tr.slice(i * CHUNK, i * CHUNK + CHUNK + 1);
+      if (pts.length < 2) break;
+      const c = matchCache[i];
+      if (c && c.n === pts.length && c.ok) continue;
+      try { matchCache[i] = { n: pts.length, ok: true, g: await matchChunk(pts) }; }
+      catch (e) { matchCache[i] = { n: pts.length, ok: false, g: pts.map(p => [p.lat, p.lon]) }; }
+      save('matchCache', matchCache);
+      drawTrack(tr);
+    }
+  } finally { matching = false; }
+}
+function drawTrack(tr) {
+  trackRaw.setLatLngs(tr.map(p => [p.lat, p.lon]));
+  const g = [];
+  for (let i = 0; i * CHUNK < tr.length - 1; i++) {
+    const pts = tr.slice(i * CHUNK, i * CHUNK + CHUNK + 1);
+    const c = matchCache[i];
+    (c && c.n === pts.length ? c.g : pts.map(p => [p.lat, p.lon])).forEach(x => g.push(x));
+  }
+  trackLine.setLatLngs(g);
+}
+
+// ---------- 表示 ----------
+const fmtKm = m => (m / 1000).toFixed(2);
+const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}`; };
+const toLocalInput = ms => { const d = new Date(ms - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+let lastTr = [];
+
+function renderAll() {
+  const now = Date.now();
+  let tr = lastTr;
+  if (!isApp && webTimer !== null && webLast && webLast.coords.accuracy <= 80)   // Web版: 現在地をリアルタイム反映
+    tr = NH.prepareTrack(rawTrack.concat([{ t: now, lat: webLast.coords.latitude, lon: webLast.coords.longitude, acc: webLast.coords.accuracy }]));
+  const total = route ? route.total : 0;
+  $('routeInfo').innerHTML = route ? `全長 <b>${fmtKm(total)} km</b> / 経路点 ${S.wps.length} / 休憩所 ${S.spots.length}` + (routeNote ? `<div class="hint">${routeNote}</div>` : '') : 'ルート未設定(経路点を2つ以上置いてください)';
+  const listHtml = S.spots.map((s, i) => `<div><span>☕ ${esc(s.name)}</span><button data-i="${i}">削除</button></div>`).join('') || '<div>なし</div>';
+  if ($('spotList').dataset.h !== listHtml) {
+    $('spotList').dataset.h = listHtml; $('spotList').innerHTML = listHtml;
+    $('spotList').querySelectorAll('button').forEach(b => b.onclick = () => deleteSpot(+b.dataset.i));
+  }
+
+  const start = S.startAt || (tr[0] && tr[0].t) || 0;
+  const rec = tracking();
+  if (!tr.length || !start) {
+    ['walked', 'elapsed', 'avg'].forEach(i => $(i).textContent = '-');
+    $('remain').innerHTML = total ? fmtKm(total) + '<small> km</small>' : '-';
+    $('restT').textContent = '-'; $('avgMov').textContent = '-';
+    $('hourTbl').tBodies[0].innerHTML = ''; $('pct').textContent = '-'; $('pct').className = 'v pct';
+    $('spotProg').textContent = S.spots.length ? 'ルート上の位置は記録開始後に表示' : '-';
+    return;
+  }
+  const last = tr[tr.length - 1];
+  const walked = last.d;
+  const prog = route ? NH.routeProgress(route, tr) : null;
+  const remain = total ? Math.max(0, total - (prog !== null ? prog : walked)) : null;
+  const endCalc = Math.max(last.t, start + 60000);   // Web版は last.t が現在時刻なので秒単位で更新
+  const elapsedMs = (rec ? now : last.t) - start;
+  const avg = walked / 1000 / ((endCalc - start) / 3600000);
+  const rests = NH.restIntervals(tr);
+  const restMs = NH.restOverlap(rests, start, endCalc);
+  const movH = (endCalc - start - restMs) / 3600000;
+  const avgMov = movH > 0 ? walked / 1000 / movH : 0;
+
+  $('walked').innerHTML = fmtKm(walked) + '<small> km</small>';
+  $('remain').innerHTML = remain === null ? '-' : fmtKm(remain) + '<small> km</small>' + (prog === null ? '<small>(概算)</small>' : '');
+  $('elapsed').textContent = fmtDur(elapsedMs);
+  $('avg').innerHTML = avg.toFixed(2) + '<small> km/h</small>';
+  $('restT').innerHTML = Math.round(restMs / 60000) + '<small> 分</small>';
+  $('avgMov').innerHTML = avgMov.toFixed(2) + '<small> km/h</small>';
+
+  // 目標に対する%
+  const target = S.target ? new Date(S.target).getTime() : 0;
+  if (target > start && total) {
+    const need = total / 1000 / ((target - start) / 3600000);
+    const pct = avg / need * 100;
+    $('pct').textContent = pct.toFixed(0) + ' %';
+    $('pct').className = 'v pct ' + (pct >= 100 ? 'g' : pct >= 90 ? 'y' : 'r');
+    const etaMs = avg > 0 && remain !== null ? last.t + remain / 1000 / avg * 3600000 : 0;
+    const left = remain !== null && target > now ? remain / 1000 / ((target - now) / 3600000) : null;
+    $('pctNote').innerHTML = `目標ペース ${need.toFixed(2)} km/h(全長${fmtKm(total)}km を ${fmtDur(target - start)} で)` +
+      (etaMs ? `<br>このペースだと到着 ${new Date(etaMs).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}頃` : '') +
+      (left ? `<br>目標に間に合うには今から ${left.toFixed(2)} km/h 必要` : '');
+  } else {
+    $('pct').textContent = '-'; $('pct').className = 'v pct';
+    $('pctNote').textContent = total ? 'ルート設定で目標到着時刻を入力してください' : 'ルートと目標到着時刻を設定してください';
+  }
+
+  // 1時間ごと
+  $('hourTbl').tBodies[0].innerHTML = NH.hourly(tr, start, endCalc, rests).map(r => {
+    const f = v => v === null ? '-' : v.toFixed(2);
+    return `<tr><td>${r.k}〜${r.k + 1}時間${r.partial ? `(${r.minutes}分)` : ''}</td><td>${r.km.toFixed(2)}km</td><td>${r.restMin}分</td><td><b>${f(r.kmh)}</b></td><td><b>${f(r.kmhMoving)}</b></td></tr>`;
+  }).join('');
+
+  // 休憩スポットまでの距離(ルート上の道のり)
+  if (route && S.spots.length) {
+    const here = prog !== null ? prog : walked;
+    const rows = S.spots.map(s => {
+      const r = NH.projectOnRoute(route, [s.lat, s.lon], -Infinity, Infinity);
+      return { name: s.name, at: r ? r.dist : null };
+    }).sort((a, b) => (a.at ?? 1e12) - (b.at ?? 1e12));
+    $('spotProg').innerHTML = rows.map(r => r.at === null ? `<div><span>☕ ${esc(r.name)}</span><span>-</span></div>` :
+      r.at < here - 100 ? `<div><span>☕ ${esc(r.name)}</span><span>通過済</span></div>` :
+      `<div><span>☕ ${esc(r.name)}</span><span>あと ${fmtKm(Math.max(0, r.at - here))} km</span></div>`).join('');
+  } else $('spotProg').textContent = '-';
+}
+
+function refresh() {
+  readTrack();
+  lastTr = NH.prepareTrack(rawTrack);
+  drawTrack(lastTr);
+  const rec = tracking();
+  $('btnRec').textContent = rec ? '■ 停止' : '● 記録開始';
+  $('btnRec').className = rec ? 'stop' : 'go';
+  const lp = rawTrack[rawTrack.length - 1];
+  $('status').innerHTML = (rec ? '記録中(画面を消しても継続)' : '停止中') +
+    `<br>${rawTrack.length}点` + (lp ? ` / 最終 ${new Date(lp.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}` : '') +
+    (isApp ? '' : ' / Web版(画面点灯中のみ記録)');
+  if (lp) {
+    const ll = [lp.lat, lp.lon];
+    if (!meMarker) meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 2000 }).addTo(map);
+    else meMarker.setLatLng(ll);
+    if (follow) map.setView(ll, Math.max(map.getZoom(), 16), { animate: false });
+  }
+  renderAll();
+  matchAll(lastTr);
+}
+
+// ---------- タブ ----------
+function tab(edit) {
+  $('viewStat').hidden = edit; $('viewEdit').hidden = !edit;
+  $('tabStat').className = edit ? '' : 'sel'; $('tabEdit').className = edit ? 'sel' : '';
+  if (!edit) setMode(null);
+}
+$('tabStat').onclick = () => tab(false); $('tabEdit').onclick = () => tab(true);
+
+// ---------- 起動 ----------
+$('target').value = S.target || '';
+$('startAt').value = S.startAt ? toLocalInput(S.startAt) : '';
+renderMarkers(); drawRoute();
+if (S.wps.length > 1 && S.routeGeom.length <= S.wps.length) updateRoute();   // 未計算/直線のままなら再取得
+if (S.routeGeom.length > 1) map.fitBounds(L.polyline(S.routeGeom).getBounds(), { padding: [20, 20] });
+if (!isApp && localStorage.getItem('webRec')) startWeb();
+refresh();
+setInterval(() => { if (!document.hidden) { refresh(); if (document.activeElement !== $('startAt')) $('startAt').value = S.startAt ? toLocalInput(S.startAt) : ''; } }, 5000);
+setInterval(() => { if (!document.hidden) renderAll(); }, 1000);   // 数値はリアルタイム(1秒ごと)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
