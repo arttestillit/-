@@ -61,7 +61,7 @@
       const prev = out[out.length - 1];
       if (prev) {
         const s = haversine([prev.lat, prev.lon], [p.lat, p.lon]);
-        d += s < 4 ? 0 : s;           // 止まっているときの GPS ゆらぎを無視
+        d += s < 15 ? 0 : s;          // 止まっているときの GPS ゆらぎ(15m未満)は歩行として数えない
       }
       out.push({ t: p.t, lat: p.lat, lon: p.lon, d });
     }
