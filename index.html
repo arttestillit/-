@@ -72,9 +72,10 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
     </div>
 
     <div id="viewEdit" hidden>
-      <div class="hint">① 下のボタンで追加モードを選び、② 地図をタップして配置します。経路点は実際の道(徒歩ルート)に沿って自動で線が引かれます。最初の経路点=スタート、最後=ゴールです。間違えた点は、その点をタップして「この点を削除」を押すと消せます(ドラッグで動かすこともできます)。</div>
+      <div class="hint">① 下のボタンで追加モードを選び、② 地図をタップして配置します。経路点は実際の道(徒歩ルート)に沿って自動で線が引かれます。最初の経路点=スタート、最後=ゴールです。「途中に挿入」を選んで地図をタップすると、最も近い区間の途中に点が入ります(ルート線をタップしても足せます)。間違えた点は、その点をタップして「この点を削除」を押すと消せます(ドラッグで動かすこともできます)。</div>
       <div class="row">
-        <button id="mWp">経路点を追加</button>
+        <button id="mWp">経路点を追加(末尾)</button>
+        <button id="mIns">途中に挿入</button>
         <button id="mSpot">休憩所を追加</button>
         <button id="mOff">編集終了</button>
       </div>
@@ -136,10 +137,10 @@ const routeLine = L.polyline([], { color: '#2f80ed', weight: 6, opacity: .8 }).a
 const trackRaw = L.polyline([], { color: '#999', weight: 2, dashArray: '4 6' }).addTo(map);
 const trackLine = L.polyline([], { color: '#ff4d4d', weight: 5, opacity: .95 }).addTo(map);
 const wpLayer = L.layerGroup().addTo(map), spotLayer = L.layerGroup().addTo(map);
-routeLine.on('click', e => {
-  if ($('viewEdit').hidden || !route) return;
-  L.DomEvent.stopPropagation(e);
-  const W = allWps(), tap = [e.latlng.lat, e.latlng.lng];
+// 地図上の点 tap が、どの区間(W[k-1]〜W[k])に属するか
+function legIndexFor(tap) {
+  const W = allWps();
+  if (!route || W.length < 2) return W.length;
   const d = NH.projectOnRoute(route, tap, -Infinity, Infinity).dist;
   let prev = 0, k = W.length - 1;
   for (let i = 1; i < W.length; i++) {
@@ -147,6 +148,21 @@ routeLine.on('click', e => {
     const wd = r ? r.dist : prev; prev = Math.max(prev, wd);
     if (d < wd) { k = i; break; }
   }
+  return k;
+}
+// 経路点(ユーザー入力分/固定ルート分)を W の k 番目の位置に挿入
+function insertWaypointAt(k, tap, straight) {
+  if (k <= S.wps.length) S.wps.splice(k, 0, [tap[0], tap[1], straight ? 1 : 0]);
+  else TAIL.pts.splice(k - S.wps.length, 0, { lat: tap[0], lon: tap[1], name: '経由点', straight: !!straight });
+  persist(); saveTail(); renderMarkers(); updateRoute();
+}
+// ルート線は細くて押しにくいので、透明で太い当たり判定の線を重ねる
+const routeHit = L.polyline([], { color: '#000', weight: 30, opacity: 0 }).addTo(map);
+const onRouteClick = e => {
+  if ($('viewEdit').hidden || !route) return;
+  L.DomEvent.stopPropagation(e);
+  const W = allWps(), tap = [e.latlng.lat, e.latlng.lng];
+  const k = legIndexFor(tap);
   // 新しい点は W[k-1] と W[k] の間。区間の属性(直線)は W[k] が持つ
   const holder = k < S.wps.length ? { get: () => S.wps[k][2] || 0, set: v => { S.wps[k][2] = v; } }
     : { get: () => TAIL.pts[k - S.wps.length].straight ? 1 : 0, set: v => { TAIL.pts[k - S.wps.length].straight = !!v; } };
@@ -155,13 +171,13 @@ routeLine.on('click', e => {
   const mk = (label, fn, color) => { const b = document.createElement('button'); b.textContent = label;
     b.style.cssText = 'display:block;margin:4px 0;width:100%;background:' + color + ';color:#fff'; b.onclick = () => { map.closePopup(); fn(); persist(); saveTail(); renderMarkers(); updateRoute(); }; box.appendChild(b); };
   mk('ここに経由点を足す', () => {
-    const np = [tap[0], tap[1], isStraight];
-    if (k <= S.wps.length) S.wps.splice(k, 0, np);
+    if (k <= S.wps.length) S.wps.splice(k, 0, [tap[0], tap[1], isStraight]);
     else TAIL.pts.splice(k - S.wps.length, 0, { lat: tap[0], lon: tap[1], name: '経由点', straight: !!isStraight });
   }, '#3b6ea5');
   mk(isStraight ? 'この区間を道路に沿わせる' : 'この区間を直線にする', () => holder.set(isStraight ? 0 : 1), '#7b3fb0');
   L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
-});
+};
+routeLine.on('click', onRouteClick); routeHit.on('click', onRouteClick);
 let meMarker = null, follow = true;
 
 $('btnFollow').onclick = () => { follow = !follow; $('btnFollow').className = follow ? 'on' : ''; };
@@ -173,13 +189,15 @@ function setMode(m) {
   mode = m;
   $('mWp').className = m === 'wp' ? 'on' : '';
   $('mSpot').className = m === 'spot' ? 'on' : '';
+  $('mIns').className = m === 'ins' ? 'on' : '';
   $('mTail').className = m === 'tail' ? 'on' : '';
   $('modeNote').textContent = m ? '編集モード中: 地図をタップして追加' : '';
 }
-$('mWp').onclick = () => setMode('wp'); $('mSpot').onclick = () => setMode('spot'); $('mOff').onclick = () => setMode(null); $('mTail').onclick = () => { if (!$('tailName').value) $('tailName').value = TAIL_NAMES[TAIL.pts.length] || ('通過点' + (TAIL.pts.length + 1)); setMode('tail'); };
+$('mWp').onclick = () => setMode('wp'); $('mSpot').onclick = () => setMode('spot'); $('mOff').onclick = () => setMode(null); $('mIns').onclick = () => setMode('ins'); $('mTail').onclick = () => { if (!$('tailName').value) $('tailName').value = TAIL_NAMES[TAIL.pts.length] || ('通過点' + (TAIL.pts.length + 1)); setMode('tail'); };
 map.on('click', e => {
   if (!mode) return;
   const p = [e.latlng.lat, e.latlng.lng];
+  if (mode === 'ins') { insertWaypointAt(legIndexFor(p), p, false); return; }
   if (mode === 'wp') { S.wps.push(p); persist(); renderMarkers(); updateRoute(); }
   else if (mode === 'tail') {
     TAIL.pts.push({ lat: p[0], lon: p[1], name: $('tailName').value.trim() || ('通過点' + (TAIL.pts.length + 1)) });
@@ -311,7 +329,7 @@ async function updateRoute() {
 }
 let route = null;
 function drawRoute() {
-  routeLine.setLatLngs(S.routeGeom);
+  routeLine.setLatLngs(S.routeGeom); routeHit.setLatLngs(S.routeGeom);
   detourLayer.clearLayers();
   legInfo.forEach(l => { if (l.manual && S.mode !== 'manual') L.polyline(l.geom, { color: '#9b51e0', weight: 7, opacity: .9, dashArray: '2 10', interactive: false }).addTo(detourLayer); });
   legInfo.forEach(l => { if (l.detour) L.polyline(l.geom, { color: '#ff8c00', weight: 8, opacity: .9, interactive: false }).addTo(detourLayer); });
