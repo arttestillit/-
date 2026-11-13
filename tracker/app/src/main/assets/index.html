@@ -85,8 +85,9 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
         <select id="routeMode" style="width:100%;font:inherit;padding:8px;background:#0f1419;color:#fff;border-radius:6px;border:1px solid #3a4a5a">
           <option value="main">大通り優先(国道・県道を選びやすい)</option>
           <option value="foot">歩行者の最短(裏道・近道も使う)</option>
+          <option value="manual">手動(打った点を全て直線でつなぐ)</option>
         </select>
-        <div class="hint">遠回りになった区間は地図上でオレンジ色になります。ルート線をタップすると経由点を足せます(足した点を大通りへドラッグ)。</div>
+        <div class="hint">遠回りの区間は地図上でオレンジ色になります。ルート線をタップすると「経由点を足す」「その区間を直線にする(紫の点線)」を選べます。国道のバイパスなど検索が脇道に逸れる所は、点を細かく打って直線にするのが確実です。</div>
       </div>
       <div class="card" style="margin-top:8px">
         <div class="l">固定ルート(国道16号×横浜線の交差点より先。一度登録すれば保存され、入力したルートの後ろに自動で連結)</div>
@@ -123,7 +124,8 @@ const persist = () => save('nh', S);
 let TAIL = load('nhTail', { use: true, pts: [] });
 const saveTail = () => save('nhTail', TAIL);
 const TAIL_NAMES = ['つきみ野入口交差点', '交差点目黒', '江の島大橋手前の交差点'];
-const allWps = () => S.wps.concat(TAIL.use ? TAIL.pts.map(p => [p.lat, p.lon]) : []);
+// 3番目の値=1 は「この点へ向かう区間を直線でつなぐ」(道路検索を使わず手動でなぞる)
+const allWps = () => S.wps.concat(TAIL.use ? TAIL.pts.map(p => [p.lat, p.lon, p.straight ? 1 : 0]) : []);
 
 // ---------- 地図 ----------
 const map = L.map('map', { zoomControl: false }).setView([35.68, 139.76], 13);
@@ -138,16 +140,26 @@ routeLine.on('click', e => {
   L.DomEvent.stopPropagation(e);
   const W = allWps(), tap = [e.latlng.lat, e.latlng.lng];
   const d = NH.projectOnRoute(route, tap, -Infinity, Infinity).dist;
-  let prev = 0, k = 0;
+  let prev = 0, k = W.length - 1;
   for (let i = 1; i < W.length; i++) {
     const r = NH.projectOnRoute(route, W[i], prev - 50, Infinity);
     const wd = r ? r.dist : prev; prev = Math.max(prev, wd);
-    if (d < wd) { k = i; break; } k = i;
+    if (d < wd) { k = i; break; }
   }
-  // k = 新しい点を入れる位置(W[k-1] と W[k] の間)
-  if (k <= S.wps.length) S.wps.splice(k, 0, tap);
-  else TAIL.pts.splice(k - S.wps.length, 0, { lat: tap[0], lon: tap[1], name: '経由点' });
-  persist(); saveTail(); renderMarkers(); updateRoute();
+  // 新しい点は W[k-1] と W[k] の間。区間の属性(直線)は W[k] が持つ
+  const holder = k < S.wps.length ? { get: () => S.wps[k][2] || 0, set: v => { S.wps[k][2] = v; } }
+    : { get: () => TAIL.pts[k - S.wps.length].straight ? 1 : 0, set: v => { TAIL.pts[k - S.wps.length].straight = !!v; } };
+  const isStraight = holder.get();
+  const box = document.createElement('div');
+  const mk = (label, fn, color) => { const b = document.createElement('button'); b.textContent = label;
+    b.style.cssText = 'display:block;margin:4px 0;width:100%;background:' + color + ';color:#fff'; b.onclick = () => { map.closePopup(); fn(); persist(); saveTail(); renderMarkers(); updateRoute(); }; box.appendChild(b); };
+  mk('ここに経由点を足す', () => {
+    const np = [tap[0], tap[1], isStraight];
+    if (k <= S.wps.length) S.wps.splice(k, 0, np);
+    else TAIL.pts.splice(k - S.wps.length, 0, { lat: tap[0], lon: tap[1], name: '経由点', straight: !!isStraight });
+  }, '#3b6ea5');
+  mk(isStraight ? 'この区間を道路に沿わせる' : 'この区間を直線にする', () => holder.set(isStraight ? 0 : 1), '#7b3fb0');
+  L.popup().setLatLng(e.latlng).setContent(box).openOn(map);
 });
 let meMarker = null, follow = true;
 
@@ -200,7 +212,7 @@ function renderMarkers() {
       ? L.divIcon({ className: '', html: `<div class="flag">${first ? '🚩' : '🏁'}</div>`, iconSize: [26, 26], iconAnchor: [4, 24] })
       : L.divIcon({ className: '', html: '<div class="wp"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
     const m = L.marker(p, { icon, draggable: true }).addTo(wpLayer);
-    m.on('dragend', () => { const ll = m.getLatLng(); S.wps[i] = [ll.lat, ll.lng]; persist(); updateRoute(); });
+    m.on('dragend', () => { const ll = m.getLatLng(); S.wps[i] = [ll.lat, ll.lng, p[2] || 0]; persist(); updateRoute(); });
     m.on('click', () => { if (mode === 'wp' && confirm('この経路点を削除しますか?')) { S.wps.splice(i, 1); persist(); renderMarkers(); updateRoute(); } });
   });
   if (TAIL.use) TAIL.pts.forEach((t, i) => {
@@ -247,6 +259,7 @@ async function fetchLeg(kind, a, b) {
 }
 async function routeLeg(a, b) {
   const straight = NH.haversine(a, b);
+  if (S.mode === 'manual' || b[2]) return { geom: [[a[0], a[1]], [b[0], b[1]]], len: straight, straight, how: '直線', manual: true };
   let foot = null, car = null;
   try { foot = await fetchLeg('foot', a, b); } catch (e) {}
   if (S.mode !== 'foot') { try { car = await fetchLeg('car', a, b); } catch (e) {} }
@@ -280,6 +293,7 @@ let route = null;
 function drawRoute() {
   routeLine.setLatLngs(S.routeGeom);
   detourLayer.clearLayers();
+  legInfo.forEach(l => { if (l.manual && S.mode !== 'manual') L.polyline(l.geom, { color: '#9b51e0', weight: 7, opacity: .9, dashArray: '2 10', interactive: false }).addTo(detourLayer); });
   legInfo.forEach(l => { if (l.detour) L.polyline(l.geom, { color: '#ff8c00', weight: 8, opacity: .9, interactive: false }).addTo(detourLayer); });
   route = S.routeGeom.length > 1 ? NH.buildRoute(S.routeGeom) : null;
   renderAll();
