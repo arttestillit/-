@@ -106,6 +106,13 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
         <div class="l">目標到着時刻</div><input type="datetime-local" id="target">
         <div class="l" style="margin-top:8px">出発時刻(記録開始ボタンで自動設定。手動修正可)</div><input type="datetime-local" id="startAt">
       </div>
+      <div class="card" style="margin-top:8px">
+        <div class="l">ルートの引き継ぎ(Web版 ⇄ アプリ版)</div>
+        <div class="hint">元の端末で「書き出す」→ 出てきた文字列をコピーしてメモやメッセージで自分に送る → 引き継ぎ先でここに貼り付けて「読み込む」。経路点・休憩所・固定ルート・道の選び方・目標時刻が移ります。</div>
+        <div class="row"><button id="xferOut">書き出す</button><button id="xferIn">読み込む</button></div>
+        <textarea id="xfer" rows="4" placeholder="ここに書き出し結果が出ます / 読み込む文字列を貼り付け" style="width:100%;font:12px monospace;padding:6px;border-radius:6px;border:1px solid #3a4a5a;background:#0f1419;color:#fff"></textarea>
+        <div class="hint" id="xferMsg"></div>
+      </div>
       <div class="card" style="margin-top:8px"><div class="l">ルート情報</div><div id="routeInfo">-</div></div>
       <div class="card list" style="margin-top:8px"><div class="l">休憩所一覧</div><div id="spotList"></div></div>
     </div>
@@ -224,6 +231,28 @@ $('allRoad').onclick = () => {
   if (S.mode === 'manual') { S.mode = 'main'; $('routeMode').value = 'main'; }
   persist(); saveTail(); for (const k in legCache) delete legCache[k]; try { localStorage.removeItem('nhLegs'); } catch (e) {}
   updateRoute();
+};
+const xferMsg = t => { $('xferMsg').textContent = t; };
+$('xferOut').onclick = async () => {
+  const data = { v: 1, wps: S.wps, spots: S.spots, tail: TAIL, mode: S.mode, target: S.target };
+  const txt = 'NHROUTE1:' + JSON.stringify(data);
+  $('xfer').value = txt; $('xfer').select();
+  let copied = false;
+  try { await navigator.clipboard.writeText(txt); copied = true; } catch (e) {}
+  if (typeof Android !== 'undefined') { Android.share(txt); xferMsg('共有先を選んで送ってください。'); }
+  else xferMsg(copied ? 'コピーしました。メモ等に貼り付けて送ってください。' : '文字列を長押しで全選択してコピーしてください。');
+};
+$('xferIn').onclick = () => {
+  let t = $('xfer').value.trim(), d;
+  try { if (!t.startsWith('NHROUTE1:')) throw 0; d = JSON.parse(t.slice(9)); if (!Array.isArray(d.wps)) throw 0; }
+  catch (e) { xferMsg('読み込めません。「書き出す」で出た文字列を全部貼り付けてください。'); return; }
+  if (!confirm('今のルートを置き換えて読み込みます。よろしいですか?')) return;
+  S.wps = d.wps; S.spots = d.spots || []; S.mode = d.mode || 'main'; S.target = d.target || ''; S.routeGeom = []; S.hasBad = false;
+  TAIL = d.tail && Array.isArray(d.tail.pts) ? d.tail : { use: true, pts: [] };
+  persist(); saveTail();
+  $('target').value = S.target; $('routeMode').value = S.mode; $('useTail').checked = TAIL.use;
+  renderMarkers(); updateRoute().then(() => { if (S.routeGeom.length > 1) map.fitBounds(L.polyline(S.routeGeom).getBounds(), { padding: [20, 20] }); });
+  xferMsg(`読み込みました(経路点 ${S.wps.length} / 固定 ${TAIL.pts.length} / 休憩所 ${S.spots.length})。`);
 };
 $('reroute').onclick = () => { for (const k in legCache) delete legCache[k]; try { localStorage.removeItem('nhLegs'); } catch (e) {} updateRoute(); };
 $('useTail').onchange = () => { TAIL.use = $('useTail').checked; saveTail(); renderMarkers(); updateRoute(); };
