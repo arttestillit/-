@@ -2,6 +2,7 @@ package app.nighthike
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -10,6 +11,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.JavascriptInterface
+import android.webkit.JsResult
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -31,7 +33,24 @@ class MainActivity : Activity() {
             allowUniversalAccessFromFileURLs = true
         }
         web.webViewClient = WebViewClient()
-        web.webChromeClient = WebChromeClient()
+        // confirm()/alert() を WebView で表示する(既定では何も出ず、キャンセル扱いになるため)
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                AlertDialog.Builder(this@MainActivity).setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result?.confirm() }
+                    .setNegativeButton("キャンセル") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                AlertDialog.Builder(this@MainActivity).setMessage(message)
+                    .setPositiveButton("OK") { _, _ -> result?.confirm() }
+                    .setOnCancelListener { result?.confirm() }
+                    .show()
+                return true
+            }
+        }
         web.addJavascriptInterface(Bridge(), "Android")
         web.loadUrl("file:///android_asset/index.html")
     }
