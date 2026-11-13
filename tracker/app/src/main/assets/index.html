@@ -441,14 +441,14 @@ function renderAll() {
   const rests = NH.restIntervals(tr);
   const restMs = NH.restOverlap(rests, start, endCalc);
   const movH = (endCalc - start - restMs) / 3600000;
-  const avgMov = movH > 0 ? walked / 1000 / movH : 0;
+  const avgMov = movH >= 5 / 60 ? walked / 1000 / movH : null;   // 歩いた時間が5分未満だと不安定なので出さない
 
   $('walked').innerHTML = fmtKm(walked) + '<small> km</small>';
   $('remain').innerHTML = remain === null ? '-' : fmtKm(remain) + '<small> km</small>' + (prog === null ? '<small>(概算)</small>' : '');
   $('elapsed').textContent = fmtDur(elapsedMs);
   $('avg').innerHTML = avg.toFixed(2) + '<small> km/h</small>';
   $('restT').innerHTML = Math.round(restMs / 60000) + '<small> 分</small>';
-  $('avgMov').innerHTML = avgMov.toFixed(2) + '<small> km/h</small>';
+  $('avgMov').innerHTML = avgMov === null ? '-' : avgMov.toFixed(2) + '<small> km/h</small>';
 
   // 目標に対する%
   const target = S.target ? new Date(S.target).getTime() : 0;
