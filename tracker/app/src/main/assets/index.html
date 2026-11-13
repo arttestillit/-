@@ -87,6 +87,7 @@ input{font:inherit;padding:8px;border-radius:6px;border:1px solid #3a4a5a;backgr
           <option value="foot">歩行者の最短(裏道・近道も使う)</option>
           <option value="manual">手動(打った点を全て直線でつなぐ)</option>
         </select>
+        <button id="reroute" style="margin-top:6px;width:100%">ルートの線を引き直す</button>
         <div class="hint">遠回りの区間は地図上でオレンジ色になります。ルート線をタップすると「経由点を足す」「その区間を直線にする(紫の点線)」を選べます。国道のバイパスなど検索が脇道に逸れる所は、点を細かく打って直線にするのが確実です。</div>
       </div>
       <div class="card" style="margin-top:8px">
@@ -189,6 +190,7 @@ map.on('click', e => {
 $('undoTail').onclick = () => { TAIL.pts.pop(); saveTail(); renderMarkers(); updateRoute(); };
 $('clearTail').onclick = () => { if (confirm('固定ルートを全て消しますか?')) { TAIL.pts = []; saveTail(); renderMarkers(); updateRoute(); } };
 $('routeMode').onchange = () => { S.mode = $('routeMode').value; persist(); updateRoute(); };
+$('reroute').onclick = () => { for (const k in legCache) delete legCache[k]; try { localStorage.removeItem('nhLegs'); } catch (e) {} updateRoute(); };
 $('useTail').onchange = () => { TAIL.use = $('useTail').checked; saveTail(); renderMarkers(); updateRoute(); };
 $('searchGo').onclick = async () => {
   const q = $('searchQ').value.trim(); if (!q) return;
@@ -254,7 +256,12 @@ const PROFILE = {
   car:  p => `https://routing.openstreetmap.de/routed-car/route/v1/driving/${p}?overview=full&geometries=geojson`,
   foot: p => `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${p}?overview=full&geometries=geojson`
 };
-const legCache = {};
+const legCache = load('nhLegs', {});
+let legSaveT = null;
+function saveLegs() {
+  clearTimeout(legSaveT);
+  legSaveT = setTimeout(() => { try { localStorage.setItem('nhLegs', JSON.stringify(legCache)); } catch (e) { try { localStorage.removeItem('nhLegs'); } catch (e2) {} } }, 500);
+}
 async function fetchLeg(kind, a, b) {
   const key = kind + '|' + a.map(x => x.toFixed(6)) + '|' + b.map(x => x.toFixed(6));
   if (legCache[key]) return legCache[key];
@@ -262,7 +269,8 @@ async function fetchLeg(kind, a, b) {
   const j = await r.json();
   if (j.code !== 'Ok') throw new Error(j.code);
   const geom = j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-  return (legCache[key] = { geom, len: j.routes[0].distance });
+  legCache[key] = { geom: geom.map(c => [+c[0].toFixed(5), +c[1].toFixed(5)]), len: j.routes[0].distance }; saveLegs();
+  return legCache[key];
 }
 async function routeLeg(a, b) {
   const straight = NH.haversine(a, b);
@@ -276,18 +284,23 @@ async function routeLeg(a, b) {
   return { geom: pick.geom, len: pick.len, straight, how,
     detour: pick.len > straight * 1.6 && pick.len - straight > 300 };
 }
-let routeSeq = 0, routeNote = '', legInfo = [];
+let routeSeq = 0, routeNote = '', legInfo = [], routing = false;
 const detourLayer = L.layerGroup().addTo(map);
 async function updateRoute() {
   const seq = ++routeSeq;
   const W = allWps();
   if (W.length < 2) { S.routeGeom = W.slice(); legInfo = []; persist(); drawRoute(); return; }
   const legs = new Array(W.length - 1);
-  let next = 0;
+  let next = 0, done = 0; routing = true;
+  // 消した/動かした直後に古い線が残らないよう、まず点同士を結ぶ仮の線に差し替える
+  routeLine.setLatLngs(W.map(p => [p[0], p[1]])); detourLayer.clearLayers();
+  $('routeInfo').textContent = `ルート計算中… 0/${legs.length}`;
   await Promise.all([0, 1, 2, 3].map(async () => {
-    while (next < legs.length) { const i = next++; legs[i] = await routeLeg(W[i], W[i + 1]); }
+    while (next < legs.length) { const i = next++; legs[i] = await routeLeg(W[i], W[i + 1]); done++;
+      if (seq === routeSeq) $('routeInfo').textContent = `ルート計算中… ${done}/${legs.length}`; }
   }));
   if (seq !== routeSeq) return;
+  routing = false;
   const geom = [];
   legs.forEach(l => l.geom.forEach((c, k) => { if (!(geom.length && k === 0)) geom.push(c); }));
   S.routeGeom = geom; legInfo = legs;
@@ -400,7 +413,7 @@ function renderAll() {
   if (!isApp && webTimer !== null && webLast && webLast.coords.accuracy <= 80)   // Web版: 現在地をリアルタイム反映
     tr = NH.prepareTrack(rawTrack.concat([{ t: now, lat: webLast.coords.latitude, lon: webLast.coords.longitude, acc: webLast.coords.accuracy }]));
   const total = route ? route.total : 0;
-  $('routeInfo').innerHTML = route ? `全長 <b>${fmtKm(total)} km</b> / 経路点 ${S.wps.length}${TAIL.use && TAIL.pts.length ? ' + 固定' + TAIL.pts.length : ''} / 休憩所 ${S.spots.length}` + (routeNote ? `<div class="hint">${routeNote}</div>` : '') : 'ルート未設定(経路点を2つ以上置いてください)';
+  if (!routing) $('routeInfo').innerHTML = route ? `全長 <b>${fmtKm(total)} km</b> / 経路点 ${S.wps.length}${TAIL.use && TAIL.pts.length ? ' + 固定' + TAIL.pts.length : ''} / 休憩所 ${S.spots.length}` + (routeNote ? `<div class="hint">${routeNote}</div>` : '') : 'ルート未設定(経路点を2つ以上置いてください)';
   $('tailList').innerHTML = TAIL.pts.map((t, i) => `<div><span>${i + 1}. ${esc(t.name)}</span></div>`).join('') || '<div>未登録</div>';
   const listHtml = S.spots.map((s, i) => `<div><span>☕ ${esc(s.name)}</span><button data-i="${i}">削除</button></div>`).join('') || '<div>なし</div>';
   if ($('spotList').dataset.h !== listHtml) {
