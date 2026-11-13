@@ -151,9 +151,15 @@ function renderMarkers() {
     const icon = L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 34],
       html: `<div class="spot"><b>☕</b></div><div class="lbl">${esc(s.name)}</div>` });
     const m = L.marker([s.lat, s.lon], { icon, zIndexOffset: 1000, draggable: true }).addTo(spotLayer);
+    const box = document.createElement('div');
+    box.innerHTML = `<b>${esc(s.name)}</b><br>`;
+    const del = document.createElement('button'); del.textContent = 'この休憩所を削除'; del.style.cssText = 'margin-top:6px;background:#d64545;color:#fff';
+    del.onclick = () => { map.closePopup(); deleteSpot(i); };
+    box.appendChild(del); m.bindPopup(box);
     m.on('dragend', () => { const ll = m.getLatLng(); S.spots[i].lat = ll.lat; S.spots[i].lon = ll.lng; persist(); renderAll(); });
   });
 }
+function deleteSpot(i) { S.spots.splice(i, 1); persist(); renderMarkers(); renderAll(); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ルート(道なり)計算
@@ -190,14 +196,18 @@ function readTrack() {
   else rawTrack = load('webTrack', []);
 }
 let webWatch = null, webTimer = null, webLast = null;
-function startWeb() {   // ブラウザ確認用(アプリ版では使われない)
+let wakeLock = null;
+async function keepAwake() { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && webTimer !== null) keepAwake(); });
+function startWeb() {   // Web版: 画面を点灯したままにして記録(消灯すると止まります)
+  localStorage.setItem('webRec', '1'); keepAwake();
   webWatch = navigator.geolocation.watchPosition(p => { webLast = p; }, () => {}, { enableHighAccuracy: true });
   const rec = () => { if (!webLast) return; const t = load('webTrack', []);
     t.push({ t: Date.now(), lat: webLast.coords.latitude, lon: webLast.coords.longitude, acc: webLast.coords.accuracy });
     save('webTrack', t); };
   webTimer = setInterval(rec, 60000); setTimeout(rec, 3000);
 }
-function stopWeb() { navigator.geolocation.clearWatch(webWatch); clearInterval(webTimer); webWatch = webTimer = null; }
+function stopWeb() { localStorage.removeItem('webRec'); try { wakeLock && wakeLock.release(); } catch (e) {} navigator.geolocation.clearWatch(webWatch); clearInterval(webTimer); webWatch = webTimer = null; }
 const tracking = () => isApp ? Android.isTracking() : webTimer !== null;
 
 $('btnRec').onclick = () => {
@@ -268,11 +278,17 @@ const toLocalInput = ms => { const d = new Date(ms - new Date().getTimezoneOffse
 let lastTr = [];
 
 function renderAll() {
-  const tr = lastTr, now = Date.now();
+  const now = Date.now();
+  let tr = lastTr;
+  if (!isApp && webTimer !== null && webLast && webLast.coords.accuracy <= 80)   // Web版: 現在地をリアルタイム反映
+    tr = NH.prepareTrack(rawTrack.concat([{ t: now, lat: webLast.coords.latitude, lon: webLast.coords.longitude, acc: webLast.coords.accuracy }]));
   const total = route ? route.total : 0;
   $('routeInfo').innerHTML = route ? `全長 <b>${fmtKm(total)} km</b> / 経路点 ${S.wps.length} / 休憩所 ${S.spots.length}` + (routeNote ? `<div class="hint">${routeNote}</div>` : '') : 'ルート未設定(経路点を2つ以上置いてください)';
-  $('spotList').innerHTML = S.spots.map((s, i) => `<div><span>☕ ${esc(s.name)}</span><button data-i="${i}">削除</button></div>`).join('') || '<div>なし</div>';
-  $('spotList').querySelectorAll('button').forEach(b => b.onclick = () => { S.spots.splice(+b.dataset.i, 1); persist(); renderMarkers(); renderAll(); });
+  const listHtml = S.spots.map((s, i) => `<div><span>☕ ${esc(s.name)}</span><button data-i="${i}">削除</button></div>`).join('') || '<div>なし</div>';
+  if ($('spotList').dataset.h !== listHtml) {
+    $('spotList').dataset.h = listHtml; $('spotList').innerHTML = listHtml;
+    $('spotList').querySelectorAll('button').forEach(b => b.onclick = () => deleteSpot(+b.dataset.i));
+  }
 
   const start = S.startAt || (tr[0] && tr[0].t) || 0;
   const rec = tracking();
@@ -288,7 +304,7 @@ function renderAll() {
   const walked = last.d;
   const prog = route ? NH.routeProgress(route, tr) : null;
   const remain = total ? Math.max(0, total - (prog !== null ? prog : walked)) : null;
-  const endCalc = Math.max(last.t, start + 60000);
+  const endCalc = Math.max(last.t, start + 60000);   // Web版は last.t が現在時刻なので秒単位で更新
   const elapsedMs = (rec ? now : last.t) - start;
   const avg = walked / 1000 / ((endCalc - start) / 3600000);
   const rests = NH.restIntervals(tr);
@@ -349,7 +365,7 @@ function refresh() {
   const lp = rawTrack[rawTrack.length - 1];
   $('status').innerHTML = (rec ? '記録中(画面を消しても継続)' : '停止中') +
     `<br>${rawTrack.length}点` + (lp ? ` / 最終 ${new Date(lp.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}` : '') +
-    (isApp ? '' : ' / ブラウザ確認モード');
+    (isApp ? '' : ' / Web版(画面点灯中のみ記録)');
   if (lp) {
     const ll = [lp.lat, lp.lon];
     if (!meMarker) meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 2000 }).addTo(map);
@@ -374,8 +390,10 @@ $('startAt').value = S.startAt ? toLocalInput(S.startAt) : '';
 renderMarkers(); drawRoute();
 if (S.wps.length > 1 && S.routeGeom.length <= S.wps.length) updateRoute();   // 未計算/直線のままなら再取得
 if (S.routeGeom.length > 1) map.fitBounds(L.polyline(S.routeGeom).getBounds(), { padding: [20, 20] });
+if (!isApp && localStorage.getItem('webRec')) startWeb();
 refresh();
-setInterval(() => { if (!document.hidden) { refresh(); $('startAt').value = S.startAt ? toLocalInput(S.startAt) : $('startAt').value; } }, 5000);
+setInterval(() => { if (!document.hidden) { refresh(); if (document.activeElement !== $('startAt')) $('startAt').value = S.startAt ? toLocalInput(S.startAt) : ''; } }, 5000);
+setInterval(() => { if (!document.hidden) renderAll(); }, 1000);   // 数値はリアルタイム(1秒ごと)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 </script>
 </body>
