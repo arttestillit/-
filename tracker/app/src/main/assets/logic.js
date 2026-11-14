@@ -35,20 +35,27 @@
     return best;
   }
 
-  // トラック全体からルート上の進捗(m)を求める。ルート外なら null。
+  // ルート上の現在位置(道なりの進捗 m)。{dist, off}: off = 現在地とルートの最短距離(m)
+  // 道なりに進んだ位置だけを数え(ルートから外れた点は無視)、最後の点がルート外でも
+  // ルート上の最も近い点で位置を見積もる。ルートも記録も無ければ null。
   function routeProgress(route, track, maxOff) {
     maxOff = maxOff || 120;
-    if (!route || route.pts.length < 2) return null;
-    let prog = 0, onRoute = false;
+    if (!route || route.pts.length < 2 || !track.length) return null;
+    let prog = 0;
     for (const q of track) {
-      let r = projectOnRoute(route, [q.lat, q.lon], prog - 300, prog + 3000);
+      const p = [q.lat, q.lon];
+      let r = projectOnRoute(route, p, prog - 300, prog + 3000);
       if (!r || r.off > maxOff) {
-        const r2 = projectOnRoute(route, [q.lat, q.lon], prog - 300, Infinity);
+        const r2 = projectOnRoute(route, p, prog - 300, Infinity);
         r = r2 && r2.off <= maxOff ? r2 : null;
       }
-      if (r) { prog = Math.max(prog, r.dist); onRoute = true; }
+      if (r) prog = Math.max(prog, r.dist);
     }
-    return onRoute ? prog : null;
+    const l = track[track.length - 1], lp = [l.lat, l.lon];
+    const near = projectOnRoute(route, lp, prog - 300, prog + 3000);
+    if (near && near.off <= maxOff) return { dist: prog, off: near.off };
+    const any = near || projectOnRoute(route, lp, -Infinity, Infinity);
+    return { dist: near ? Math.max(prog, near.dist) : prog, off: any ? any.off : Infinity };
   }
 
   // 精度の悪い点を除き、累積距離を付与
