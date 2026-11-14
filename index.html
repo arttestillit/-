@@ -510,8 +510,11 @@ function renderAll() {
   }
   const last = tr[tr.length - 1];
   const walked = last.d;
-  const prog = route ? NH.routeProgress(route, tr) : null;
-  const remain = total ? Math.max(0, total - (prog !== null ? prog : walked)) : null;
+  // 残り距離 = ルートの道なりに、現在位置から目的地まで進んだ場合の距離
+  const pr = route ? NH.routeProgress(route, tr) : null;
+  const offM = pr ? pr.off : null;
+  const prog = pr && offM <= 500 ? pr.dist : null;      // ルートから500m超離れていると位置を決められない
+  const remain = prog !== null ? Math.max(0, total - prog) : null;
   const endCalc = Math.max(last.t, start + 60000);   // Web版は last.t が現在時刻なので秒単位で更新
   const elapsedMs = (rec ? now : last.t) - start;
   const avg = walked / 1000 / ((endCalc - start) / 3600000);
@@ -521,7 +524,7 @@ function renderAll() {
   const avgMov = movH >= 5 / 60 ? walked / 1000 / movH : null;   // 歩いた時間が5分未満だと不安定なので出さない
 
   $('walked').innerHTML = fmtKm(walked) + '<small> km</small>';
-  $('remain').innerHTML = remain === null ? '-' : fmtKm(remain) + '<small> km</small>' + (prog === null ? '<small>(概算)</small>' : '');
+  $('remain').innerHTML = remain === null ? (total && offM !== null ? '-<small> ルートから離れています</small>' : '-') : fmtKm(remain) + '<small> km</small>' + (offM > 120 ? `<small> (ルートから${Math.round(offM)}m外れ)</small>` : '');
   $('elapsed').textContent = fmtDur(elapsedMs);
   $('avg').innerHTML = avg.toFixed(2) + '<small> km/h</small>';
   $('restT').innerHTML = Math.round(restMs / 60000) + '<small> 分</small>';
@@ -552,12 +555,13 @@ function renderAll() {
 
   // 休憩スポットまでの距離(ルート上の道のり)
   if (route && S.spots.length) {
-    const here = prog !== null ? prog : walked;
+    const here = prog;
     const rows = S.spots.map(s => {
       const r = NH.projectOnRoute(route, [s.lat, s.lon], -Infinity, Infinity);
       return { name: s.name, at: r ? r.dist : null };
     }).sort((a, b) => (a.at ?? 1e12) - (b.at ?? 1e12));
     $('spotProg').innerHTML = rows.map(r => r.at === null ? `<div><span>☕ ${esc(r.name)}</span><span>-</span></div>` :
+      here === null ? `<div><span>☕ ${esc(r.name)}</span><span>-</span></div>` :
       r.at < here - 100 ? `<div><span>☕ ${esc(r.name)}</span><span>通過済</span></div>` :
       `<div><span>☕ ${esc(r.name)}</span><span>あと ${fmtKm(Math.max(0, r.at - here))} km</span></div>`).join('');
   } else $('spotProg').textContent = '-';
